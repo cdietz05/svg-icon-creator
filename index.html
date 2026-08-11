@@ -2601,18 +2601,19 @@
   // ---------- isometric grid: a classic 3-axis (30/90/150 degree) drawing
   // grid. Points snap to the nearest intersection of a triangular lattice
   // built from two axes at +/-30 degrees from horizontal, edge length
-  // ISO_STEP - see isoSnapPt for the derivation (solving i*u + j*v = p for
-  // the lattice's integer basis coordinates, then rounding). Vertical lines
-  // fall out of the same lattice for free (the "u - v" direction is
-  // perfectly vertical), so a 90-degree family reuses the same spacing. ----------
+  // Lattice step - see isoSnapPt for the derivation (solving i*u + j*v = p
+  // for the lattice's integer basis coordinates, then rounding). Vertical
+  // lines fall out of the same lattice for free (the "u - v" direction is
+  // perfectly vertical), so a 90-degree family reuses the same spacing.
+  // Driven by gridStep (Grid Scale), same as the square grid's snap/line
+  // spacing - was hardcoded to 1 unit regardless of Grid Scale before.
   const ISO_ANGLE = Math.PI / 6; // 30 degrees
-  const ISO_STEP = 1;
   function isoSnapPt(p) {
     const c = Math.cos(ISO_ANGLE), s = Math.sin(ISO_ANGLE);
-    const iRaw = (p.x / (ISO_STEP * c) + p.y / (ISO_STEP * s)) / 2;
-    const jRaw = (p.x / (ISO_STEP * c) - p.y / (ISO_STEP * s)) / 2;
+    const iRaw = (p.x / (gridStep * c) + p.y / (gridStep * s)) / 2;
+    const jRaw = (p.x / (gridStep * c) - p.y / (gridStep * s)) / 2;
     const i = Math.round(iRaw), j = Math.round(jRaw);
-    return { x: ISO_STEP * c * (i + j), y: ISO_STEP * s * (i - j) };
+    return { x: gridStep * c * (i + j), y: gridStep * s * (i - j) };
   }
   function snapPt(p) {
     if (!snapEnabled) return p;
@@ -4281,8 +4282,10 @@
     if (gridMode === "isometric") {
       // All three axes of the lattice (90/30/150 degrees) share the same
       // perpendicular spacing in a proper triangular grid - see isoSnapPt's
-      // comment for the derivation.
-      const spacing = ISO_STEP * Math.cos(ISO_ANGLE);
+      // comment for the derivation. Capped the same way the square grid
+      // is (see renderGrid's square branch) so a very fine Grid Scale
+      // can't flood the SVG with lines on every pan/zoom frame.
+      const spacing = Math.max(gridStep * Math.cos(ISO_ANGLE), (w + h) / 200);
       parts = parts.concat(gridLineFamily(90, spacing, w, h, 4));
       parts = parts.concat(gridLineFamily(30, spacing, w, h, 4));
       parts = parts.concat(gridLineFamily(-30, spacing, w, h, 4));
