@@ -1,0 +1,3422 @@
+<title>SVG Icon Creator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+
+<style>
+  :root {
+    --bg: #f6f7f8;
+    --surface: #ffffff;
+    --surface-2: #eef0f3;
+    --surface-3: #e2e5ea;
+    --border: #dbdfe4;
+    --text: #14171c;
+    --text-muted: #62676f;
+    --accent: #2f5fd6;
+    --accent-ink: #ffffff;
+    --accent-2: #b8720f;
+    --select: #9333ea;
+    --danger: #c0392b;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --display: "system-condensed", "Segoe UI Semibold", var(--sans);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10131a;
+      --surface: #181c25;
+      --surface-2: #1f2430;
+      --surface-3: #2a303e;
+      --border: #313848;
+      --text: #edeff3;
+      --text-muted: #929aa8;
+      --accent: #6f9bff;
+      --accent-ink: #0d1220;
+      --accent-2: #ffb454;
+      --select: #c084fc;
+      --danger: #ff8577;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #10131a;
+    --surface: #181c25;
+    --surface-2: #1f2430;
+    --surface-3: #2a303e;
+    --border: #313848;
+    --text: #edeff3;
+    --text-muted: #929aa8;
+    --accent: #6f9bff;
+    --accent-ink: #0d1220;
+    --accent-2: #ffb454;
+    --select: #c084fc;
+    --danger: #ff8577;
+  }
+
+  @font-face {
+    font-family: "system-condensed";
+    src: local("Bahnschrift"), local("Arial Narrow"), local("Roboto Condensed");
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overscroll-behavior: none;
+  }
+
+  /* iPad/touch: block the long-press callout + text-selection magnifier
+     everywhere except real text-entry fields, which keep normal behavior. */
+  .app { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  input, textarea, .icon-row-name { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+
+  button {
+    font-family: var(--sans);
+  }
+
+  input, select, textarea {
+    font-family: var(--mono);
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+  }
+
+  input:focus, select:focus, textarea:focus, button:focus-visible {
+    outline: 2px solid var(--accent-2);
+    outline-offset: 1px;
+  }
+
+  button {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  button:hover { border-color: var(--accent-2); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+  button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+
+  label {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  h1, h2, h3 { margin: 0; font-family: var(--display); text-transform: uppercase; letter-spacing: 0.03em; }
+
+  .app {
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    background: var(--bg);
+  }
+
+  header.top {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  header.top .eyebrow {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  header.top h1 { font-size: 18px; }
+  header.top .sub { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+
+  .body-grid {
+    display: grid;
+    grid-template-columns: 230px 1fr 300px;
+    grid-template-areas: "left canvas right";
+    min-height: 0;
+  }
+
+  aside.left, aside.right {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  aside.left { grid-area: left; }
+  aside.right { grid-area: right; border-right: none; border-left: 1px solid var(--border); }
+  /* Was never explicitly placed - it only ever landed in the "canvas"
+     column by coincidence, via grid auto-placement filling in after
+     aside.left claimed "left". Hiding aside.left (display:none removes
+     it from layout entirely) shifted auto-placement so this fell into
+     the now-empty, zero-width "left" column instead, squeezing the
+     whole toolbar/canvas into nothing while the real canvas column sat
+     empty - explicit grid-area makes the placement correct regardless
+     of sibling visibility. */
+  .canvas-wrap { grid-area: canvas; }
+
+  /* Collapsing the icon-list pane to reclaim canvas space. */
+  .body-grid.hide-left aside.left { display: none; }
+  .body-grid.hide-left { grid-template-columns: 0 1fr 300px; }
+
+  /* iPad portrait / narrow window: stack the three columns instead of
+     sitting them side by side, and cap the two drawers so the canvas keeps
+     most of the vertical space (each drawer still scrolls internally). */
+  @media (max-width: 900px) {
+    .body-grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto minmax(240px, 1fr) auto;
+      grid-template-areas: "left" "canvas" "right";
+    }
+    .body-grid.hide-left { grid-template-rows: 0 minmax(240px, 1fr) auto; }
+    aside.left { max-height: 220px; border-right: none; border-bottom: 1px solid var(--border); }
+    aside.right { max-height: 42vh; border-left: none; border-top: 1px solid var(--border); }
+    .canvas-wrap { min-height: 300px; }
+  }
+
+  .panel-head {
+    padding: 10px 12px 6px;
+    font-family: var(--display);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .panel-head-btn {
+    font-family: var(--sans);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+
+  #iconList { padding: 6px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+
+  .icon-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .icon-row:hover { background: var(--surface-2); }
+  .icon-row.active { background: var(--surface-2); border-color: var(--accent); }
+  .icon-row-thumb { width: 20px; height: 20px; flex: none; color: var(--text-muted); }
+  .icon-row.active .icon-row-thumb { color: var(--accent); }
+  .icon-row-thumb svg, .icon-row-thumb { stroke: currentColor; }
+  .icon-row-name { font-size: 12.5px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icon-row-count { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+  .icon-row-del { font-size: 10px; color: var(--text-muted); background: none; border: none; padding: 2px 4px; }
+  .icon-row-del:hover { color: var(--danger); }
+
+  .stack { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+  /* Properties/Boolean panels can grow long (a compound shape's full
+     property list, or several boolean-op rows) - letting these two grow
+     to fill the aside's scroll instead of the more-static panels below
+     them (Preview/Import) made those bottom sections hard to reach.
+     overflow-y here is what actually lets a manually-set height (via
+     .panel-resize-handle below) scroll instead of just clipping. */
+  #propsPanel, #boolPanel { overflow-y: auto; min-height: 48px; max-height: 70vh; }
+  /* A drag handle between resizable panel sections — three short lines,
+     the universal "grip" affordance — instead of relying on the native
+     CSS resize corner-nub, which is tiny and easy to miss entirely
+     against this panel's own background. */
+  .panel-resize-handle {
+    flex: none;
+    height: 13px;
+    margin: -4px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    cursor: ns-resize;
+    touch-action: none;
+  }
+  .panel-resize-handle span { width: 16px; height: 2px; background: var(--border); border-radius: 1px; }
+  .panel-resize-handle:hover span, .panel-resize-handle.dragging span { background: var(--accent-2); }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-row button { flex: 1; }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-wrap: wrap;
+  }
+
+  .tool-group { display: flex; align-items: center; gap: 6px; }
+  .tool-group + .tool-group { border-left: 1px solid var(--border); padding-left: 16px; }
+  .tool-btn { min-width: 56px; }
+  .hint {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    padding: 4px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .hint b { color: var(--text); }
+
+  .canvas-wrap { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .canvas-viewport {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    background:
+      linear-gradient(45deg, var(--surface-3) 25%, transparent 25%) -8px -8px / 16px 16px,
+      linear-gradient(-45deg, var(--surface-3) 25%, transparent 25%) -8px -8px / 16px 16px,
+      linear-gradient(45deg, transparent 75%, var(--surface-3) 75%) -8px -8px / 16px 16px,
+      linear-gradient(-45deg, transparent 75%, var(--surface-3) 75%) -8px -8px / 16px 16px,
+      var(--surface-2);
+    background-blend-mode: normal;
+  }
+
+  #artboard {
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--border), 0 8px 24px rgba(0,0,0,0.25);
+    touch-action: none;
+    cursor: crosshair;
+    margin: auto;
+    flex: none;
+    overflow: hidden; /* clips the isometric grid's over-long diagonal lines to the canvas bounds */
+  }
+  #artboard.select-cursor { cursor: default; }
+  #artboard.pan-active { cursor: grab; }
+  #artboard.pan-active, #artboard.pan-active * { touch-action: pan-x pan-y; }
+
+  #gridLayer, #shapesLayer { pointer-events: none; }
+  #gridLayer line { stroke: var(--border); stroke-width: 0.05; }
+  #gridLayer line.major { stroke-width: 0.08; opacity: 0.9; }
+  #shapesLayer { color: var(--text); }
+  #shapesLayer path, #shapesLayer rect, #shapesLayer ellipse, #shapesLayer line { vector-effect: non-scaling-stroke; }
+  /* Always-on marker for knockout shapes (never rendered as real fill -
+     see applyKnockoutMask) so they stay findable/selectable on canvas
+     even though they contribute no visible pixels of their own. Danger
+     red rather than the accent colors, since it's a distinct concept
+     (a permanent cutting tool) from selection/overlap/bool-op state. */
+  .knockout-outline { fill: var(--danger); fill-opacity: 0.12; stroke: var(--danger); stroke-width: 0.14; stroke-dasharray: 0.4 0.35; pointer-events: none; }
+
+  #artboard, #artboard * { touch-action: none; }
+  .hit-target { fill: transparent; stroke: transparent; stroke-width: 1.2; pointer-events: all; cursor: move; }
+  .draft-preview { color: var(--accent-2); opacity: 0.85; }
+  .selection-outline { fill: none; stroke: var(--select); stroke-width: 0.12; stroke-dasharray: 1 0.7; pointer-events: none; }
+  .handle-hit { fill: transparent; stroke: transparent; pointer-events: all; cursor: pointer; }
+  .handle-box, .handle-anchor { fill: var(--accent); stroke: var(--surface); stroke-width: 0.12; pointer-events: none; }
+  .handle-diamond { fill: var(--surface); stroke: var(--accent-2); stroke-width: 0.12; pointer-events: none; }
+  .handle-rotate { fill: var(--surface); stroke: var(--accent); stroke-width: 0.16; pointer-events: none; }
+  .handle-bend { fill: var(--surface); stroke: var(--accent-2); stroke-width: 0.16; pointer-events: none; }
+  .handle-guide { stroke: var(--accent-2); stroke-width: 0.08; opacity: 0.6; pointer-events: none; }
+  .bool-outline-back { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.9 0.5; pointer-events: none; }
+  .bool-outline-front { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.3 0.35; pointer-events: none; }
+  .multi-outline { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-width: 0.14; stroke-dasharray: 0.5 0.35; pointer-events: none; }
+  .marquee-rect { fill: var(--accent); fill-opacity: 0.1; stroke: var(--accent); stroke-width: 0.1; stroke-dasharray: 0.4 0.3; pointer-events: none; }
+  .align-guide { stroke: var(--accent); stroke-width: 0.12; stroke-dasharray: 0.5 0.4; pointer-events: none; }
+  .pen-preview { fill: none; stroke: var(--accent-2); stroke-width: 0.12; stroke-dasharray: 0.6 0.5; }
+  .pen-anchor { fill: var(--accent); pointer-events: none; }
+  .pen-handle { fill: var(--surface); stroke: var(--accent-2); stroke-width: 0.12; pointer-events: none; }
+  .selected-highlight { fill: var(--select); fill-opacity: 0.22; stroke: var(--select); stroke-width: 0.22; pointer-events: none; }
+
+  .prop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .prop-row label { flex: none; }
+  .prop-row input, .prop-row select { width: 100px; }
+  .muted { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+  .preview-row { display: flex; gap: 12px; align-items: flex-end; }
+  .preview-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .preview-box .swatch { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--accent); }
+  .preview-box span { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+
+  textarea { width: 100%; resize: vertical; font-size: 11px; }
+  #exportText { height: 140px; }
+  #importText { height: 70px; }
+
+  .radio-row { display: flex; gap: 14px; }
+  .radio-row label { flex-direction: row; font-size: 11.5px; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* In-page replacement for window.alert/confirm/prompt — sandboxed
+     artifact iframes commonly block native modal dialogs outright, where
+     confirm()/prompt() just return false/null with nothing shown. */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000; padding: 20px;
+    -webkit-user-select: auto; user-select: auto;
+  }
+  .modal-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; max-width: 360px; width: 100%;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .modal-box p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text); }
+  .modal-box input { width: 100%; font-family: var(--sans); font-size: 14px; padding: 8px 10px; }
+  .modal-box .btn-row { justify-content: flex-end; }
+  .modal-box .btn-row button { flex: none; }
+  /* A file download via a hidden <a>+click() is silent by default in
+     Chromium (no save dialog, no visible change on the page) unless the
+     browser's own "ask where to save" setting is on - with it off (the
+     default), nothing on screen confirms it happened at all. This toast
+     is that missing confirmation, for Save .json/Download .svg. */
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(8px);
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 16px; font-size: 13px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    z-index: 1100; opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* A freely-movable, resizable preview window - for checking detail at
+     a size much larger than the fixed 22/56/96px swatches allow,
+     without permanently eating sidebar space the rest of the time. */
+  .floating-preview {
+    position: fixed; top: 90px; right: 40px; width: 320px; height: 360px;
+    min-width: 140px; min-height: 160px; max-width: 90vw; max-height: 90vh;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    display: flex; flex-direction: column; z-index: 900; overflow: hidden;
+  }
+  .floating-preview.hidden { display: none; }
+  .floating-preview-head {
+    flex: none; display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--border);
+    font-family: var(--display); font-size: 12px; letter-spacing: 0.04em; color: var(--text-muted);
+    cursor: move; touch-action: none; -webkit-user-select: none; user-select: none;
+  }
+  .floating-preview-close {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 4px 7px; border-radius: 6px;
+  }
+  .floating-preview-close:hover { color: var(--text); background: var(--surface-2); }
+  .floating-preview-body {
+    flex: 1; min-height: 0; padding: 14px; display: flex; align-items: center; justify-content: center;
+  }
+  .floating-preview-body svg { width: 100%; height: 100%; color: var(--accent); }
+  .floating-preview-resize {
+    position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none;
+  }
+  .floating-preview-resize span {
+    position: absolute; right: 2px; bottom: 2px; height: 2px; background: var(--border); border-radius: 1px;
+    transform-origin: right bottom; transform: rotate(-45deg);
+  }
+  .floating-preview-resize span:nth-child(1) { width: 15px; }
+  .floating-preview-resize span:nth-child(2) { width: 10px; bottom: 5px; }
+  .floating-preview-resize span:nth-child(3) { width: 5px; bottom: 9px; }
+  .floating-preview-resize:hover span, .floating-preview-resize.dragging span { background: var(--accent-2); }
+</style>
+
+<div class="app">
+  <header class="top">
+    <h1>SVG Icon Creator</h1>
+    <span class="sub">Autosaves to this browser · export raw SVG when ready</span>
+  </header>
+
+  <div class="body-grid">
+    <aside class="left">
+      <div class="panel-head">Icons</div>
+      <div id="iconList"></div>
+      <div class="stack" style="border-top:1px solid var(--border)">
+        <button id="addIconBtn">+ Add Icon</button>
+      </div>
+      <div class="stack" style="border-top:1px solid var(--border); margin-top:auto">
+        <div class="panel-head" style="padding-left:0">Project</div>
+        <div class="btn-row">
+          <button id="newProjectBtn">New</button>
+          <button id="exportProjectBtn">Save .json</button>
+        </div>
+        <label class="btn-row" style="justify-content:center; cursor:pointer; border:1px solid var(--border); border-radius:6px; padding:5px 10px; font-size:12px;">
+          Load .json
+          <input type="file" id="importProjectInput" accept="application/json" hidden>
+        </label>
+        <div class="btn-row">
+          <button id="copyProjectTextBtn" title="If Save .json isn't producing a real download in your browser, copy the project as text instead - works around that entirely.">Copy as Text</button>
+          <button id="pasteProjectTextBtn" title="Load a project from text copied via Copy as Text on another device/browser">Paste Text</button>
+        </div>
+        <div class="btn-row">
+          <button id="openProjectTabBtn" title="Tries your device's native Share sheet (Save to Files, etc.) first, then falls back to opening the JSON as its own page - use Save Page As / Ctrl+S there. Works even where the Save .json button's download doesn't.">Share / Open in Tab</button>
+        </div>
+      </div>
+    </aside>
+
+    <div class="canvas-wrap">
+      <div class="toolbar">
+        <div class="tool-group">
+          <button id="toggleLeftBtn" title="Hide/show the icon list">◀</button>
+        </div>
+        <div class="tool-group">
+          <button class="tool-btn active" data-tool="select" title="Select / move (V)">Select</button>
+          <button class="tool-btn" data-tool="rect" title="Rectangle — hold Shift for a square (R)">Rect</button>
+          <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)">Ellipse</button>
+          <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)">Line</button>
+          <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter to finish (C)">Curve</button>
+          <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)">Freehand</button>
+          <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)">Cut</button>
+          <button class="tool-btn" data-tool="multi" title="Multi-select — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)">Multi</button>
+          <button class="tool-btn" data-tool="pan" title="Pan — drag (finger or Pencil) to scroll around when zoomed in (P)">Pan</button>
+        </div>
+        <div class="tool-group">
+          <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
+          <button id="redoBtn" title="Redo (Ctrl+Y)">Redo</button>
+        </div>
+        <div class="tool-group">
+          <label><input type="checkbox" id="snapToggle" checked>Snap</label>
+          <label><input type="checkbox" id="gridToggle" checked>Grid</label>
+          <select id="gridMode" title="Grid pattern used for the visible grid and for Snap">
+            <option value="square" selected>Square</option>
+            <option value="isometric">Isometric</option>
+          </select>
+        </div>
+        <div class="tool-group">
+          <button id="zoomOut">−</button>
+          <span id="zoomLabel" style="font-family:var(--mono); font-size:11px; color:var(--text-muted); min-width:56px; text-align:center;"></span>
+          <button id="zoomIn">+</button>
+        </div>
+        <div class="tool-group">
+          <label>Weight <input type="number" id="defaultStrokeWidth" value="1.6" step="0.1" min="0.2" style="width:48px" title="Stroke width used for newly drawn shapes"></label>
+        </div>
+        <div class="tool-group">
+          <label>Smooth <input type="range" id="freehandSmoothing" min="0" max="100" value="50" step="1" style="width:70px" title="How much the Freehand tool smooths out jitter from a shaky hand - higher removes more of the raw wobble"><span id="freehandSmoothingLabel" style="font-family:var(--mono); font-size:10.5px; color:var(--text-muted); min-width:30px; display:inline-block; text-align:right;">50%</span></label>
+        </div>
+        <div class="tool-group">
+          <label>Canvas <input type="number" id="vbW" value="24" min="4" max="512" style="width:48px"> × <input type="number" id="vbH" value="24" min="4" max="512" style="width:48px"></label>
+        </div>
+      </div>
+      <div class="hint">
+        <b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> finishes, click the start point to close) · <b>F</b> freehand (just draw, it's smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · a selected shape's top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo
+      </div>
+      <div class="canvas-viewport" id="canvasViewport">
+        <svg id="artboard" xmlns="http://www.w3.org/2000/svg">
+          <g id="gridLayer"></g>
+          <g id="shapesLayer"></g>
+          <g id="uiLayer"></g>
+        </svg>
+      </div>
+    </div>
+
+    <aside class="right">
+      <div class="panel-head">Properties</div>
+      <div class="stack" id="propsPanel"></div>
+      <div class="panel-resize-handle" data-resize-target="propsPanel"><span></span><span></span><span></span></div>
+
+      <div class="panel-head">Boolean — cut a hole</div>
+      <div class="stack" id="boolPanel"></div>
+      <div class="panel-resize-handle" data-resize-target="boolPanel"><span></span><span></span><span></span></div>
+
+      <div class="panel-head">
+        Preview at size
+        <button id="floatPreviewBtn" class="panel-head-btn" title="Open a larger, resizable, freely-movable preview window">⤢ Float</button>
+      </div>
+      <div class="stack">
+        <div class="preview-row">
+          <div class="preview-box"><svg class="swatch" id="preview-22" width="22" height="22"></svg><span>22px</span></div>
+          <div class="preview-box"><svg class="swatch" id="preview-56" width="56" height="56"></svg><span>56px</span></div>
+          <div class="preview-box"><svg class="swatch" id="preview-96" width="96" height="96"></svg><span>96px</span></div>
+        </div>
+      </div>
+
+      <div class="panel-head">Import SVG markup</div>
+      <div class="stack">
+        <textarea id="importText" placeholder="Paste rect/circle/ellipse/line/polygon/path markup here (e.g. from a previous draft) to load it into the active icon as editable shapes."></textarea>
+        <button id="importBtn">Import into this icon</button>
+      </div>
+
+      <div class="panel-head">Export</div>
+      <div class="stack">
+        <div class="radio-row">
+          <label><input type="radio" name="exportMode" value="active" checked> This icon</label>
+          <label><input type="radio" name="exportMode" value="all"> All icons</label>
+          <label><input type="radio" name="exportMode" value="standalone" title="Bakes an explicit color into fill/stroke instead of currentColor, and skips nothing else this tool relies on being modern - viewable standalone in an <img> tag, an old browser, or any SVG viewer, not just inlined in a page that can supply currentColor via CSS."> Standalone</label>
+        </div>
+        <div class="prop-row" id="standaloneColorRow" style="display:none">
+          <label>Baked color</label>
+          <input type="color" id="standaloneColor" value="#000000">
+        </div>
+        <textarea id="exportText" readonly></textarea>
+        <p class="muted" style="font-size:10.5px;">None of the buttons below responding (some browsers/devices block all of them)? Tap inside the box above, tap <b>Select All</b>, then <b>Copy</b> from the menu that pops up - that's your device doing the copying, not this page, so no permission can block it.</p>
+        <div class="btn-row">
+          <button id="copyBtn">Copy</button>
+          <button id="downloadBtn" class="primary">Download .svg</button>
+        </div>
+        <div class="btn-row">
+          <button id="openSvgTabBtn" title="Tries your device's native Share sheet (Save to Files, etc.) first, then falls back to opening the SVG as its own page - use Save Page As / Ctrl+S there. Works even where the Download button's download doesn't.">Share / Open in Tab</button>
+        </div>
+        <div class="btn-row">
+          <button id="navigateSvgBtn" title="Last resort: replaces THIS page with the raw SVG, in case your browser blocks opening a new tab specifically but still allows navigating the current one. Your project stays saved - use the Back button to return here.">Direct Navigate (leaves this page)</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div id="floatingPreview" class="floating-preview hidden">
+  <div class="floating-preview-head" id="floatingPreviewHead">
+    <span>Live Preview</span>
+    <button id="floatingPreviewClose" class="floating-preview-close" title="Close">✕</button>
+  </div>
+  <div class="floating-preview-body">
+    <svg id="preview-float" class="swatch"></svg>
+  </div>
+  <div class="floating-preview-resize" id="floatingPreviewResize" title="Drag to resize"><span></span><span></span><span></span></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const STORAGE_KEY = "cinder-icon-editor-project-v1";
+
+  const ICON_SEED = [
+    ["barbell", "Barbell"], ["dumbbell", "Dumbbell"], ["kettlebell", "Kettlebell"],
+    ["cable", "Cable"], ["machine", "Machine"], ["bodyweight", "Bodyweight"],
+    ["smithMachine", "Smith Machine"], ["battleRopes", "Battle Ropes"], ["sled", "Sled"],
+    ["jumpRope", "Jump Rope"], ["medicineBall", "Medicine Ball"], ["abWheel", "Ab Wheel"],
+    ["treadmill", "Treadmill"], ["elliptical", "Elliptical"], ["stationaryBike", "Stationary Bike"],
+    ["rowingMachine", "Rowing Machine"], ["stairClimber", "Stair Climber"], ["tire", "Tire"],
+    ["climbingRope", "Climbing Rope"], ["gymnasticRings", "Gymnastic Rings"],
+    ["flatBench", "Flat Bench"], ["inclineBench", "Incline Bench"], ["declineBench", "Decline Bench"],
+    ["preacherBench", "Preacher Bench"], ["squatRack", "Squat Rack"], ["pullUpBar", "Pull-Up Bar"],
+    ["dipStation", "Dip Station"], ["plyoBox", "Plyo Box"], ["landmineAttachment", "Landmine Attachment"]
+  ];
+
+  // Seeded from the most recent hand-drawn draft so editing can continue
+  // where the back-and-forth left off, instead of starting from blank canvases.
+  const ICON_SEED_MARKUP = {
+    barbell: `<line x1="5" y1="12" x2="19" y2="12"/><rect x="3.4" y="10" width="1.6" height="4" rx="0.4"/><rect x="1" y="7" width="2" height="10" rx="0.6"/><rect x="19" y="10" width="1.6" height="4" rx="0.4"/><rect x="21" y="7" width="2" height="10" rx="0.6"/>`,
+    dumbbell: `<line x1="9" y1="12" x2="15" y2="12"/><rect x="6.5" y="9" width="1.6" height="6" rx="0.4"/><rect x="4.5" y="7" width="1.6" height="10" rx="0.4"/><rect x="15.9" y="9" width="1.6" height="6" rx="0.4"/><rect x="17.9" y="7" width="1.6" height="10" rx="0.4"/>`,
+    kettlebell: `<path d="M8.3 8.6 C8.3 4.3 15.7 4.3 15.7 8.6"/><line x1="8.3" y1="8.6" x2="8.3" y2="10.4"/><line x1="15.7" y1="8.6" x2="15.7" y2="10.4"/><circle cx="12" cy="15.8" r="6.6"/>`,
+    cable: `<path d="M7 2 C7 9 11 10.5 13.5 13.5"/><polygon points="13.5,13.5 20,13.5 16.5,19.5"/>`,
+    machine: `<rect x="4" y="7" width="9" height="15" rx="1"/><line x1="5.6" y1="9.6" x2="11.4" y2="9.6"/><line x1="5.6" y1="12.4" x2="11.4" y2="12.4"/><line x1="5.6" y1="15.2" x2="11.4" y2="15.2"/><line x1="5.6" y1="18" x2="11.4" y2="18"/><circle cx="13.4" cy="10.6" r="0.8" fill="currentColor" stroke="none"/><path d="M8.5 7 L8.5 3.4 L19 3.4 L19 8"/><circle cx="19" cy="3.4" r="1.1"/>`,
+    bodyweight: `<circle cx="12" cy="4.1" r="2.1"/><line x1="12" y1="6.2" x2="12" y2="13.5"/><line x1="12" y1="8.3" x2="6" y2="5.4"/><line x1="12" y1="8.3" x2="18" y2="5.4"/><line x1="12" y1="13.5" x2="7.5" y2="21"/><line x1="12" y1="13.5" x2="16.5" y2="21"/>`,
+    smithMachine: `<line x1="6" y1="2" x2="6" y2="22"/><line x1="18" y1="2" x2="18" y2="22"/><line x1="6" y1="11" x2="18" y2="11"/><circle cx="6" cy="11" r="1"/><circle cx="18" cy="11" r="1"/><rect x="4.4" y="9" width="1.4" height="4" rx="0.3"/><rect x="18.2" y="9" width="1.4" height="4" rx="0.3"/>`,
+    battleRopes: `<rect x="19.6" y="9" width="2.6" height="8.5" rx="0.6" fill="currentColor" stroke="none"/><rect x="0.6" y="8.6" width="3.2" height="2.4" rx="0.6"/><rect x="0.6" y="15" width="3.2" height="2.4" rx="0.6"/><path d="M3.8 9.8 C10 9.8 13 16.2 19.6 16.2" stroke-width="2"/><path d="M3.8 16.2 C10 16.2 13 9.8 19.6 9.8" stroke-width="2"/>`,
+    sled: `<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="22" x2="6" y2="3"/><rect x="6" y="17.5" width="13" height="2.4" rx="0.5"/><rect x="10.5" y="14.6" width="3" height="3" rx="0.4"/>`,
+    jumpRope: `<circle cx="12" cy="8.5" r="5.5"/><path d="M6.9 10.5 C4 12.5 3.6 13.5 3.6 15"/><path d="M17.1 10.5 C20 12.5 20.4 13.5 20.4 15"/><rect x="2.4" y="14.6" width="2.4" height="4.4" rx="0.6"/><rect x="19.2" y="14.6" width="2.4" height="4.4" rx="0.6"/>`,
+    medicineBall: `<circle cx="12" cy="12" r="8.5"/><path d="M4.5 9.5 Q12 15 19.5 9.5"/>`,
+    abWheel: `<line x1="1.5" y1="12" x2="22.5" y2="12"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="2.2" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="21.8" cy="12" r="1.5" fill="currentColor" stroke="none"/>`,
+    treadmill: `<rect x="2.5" y="16.5" width="14" height="2.8" rx="1.2"/><circle cx="4.5" cy="19.8" r="1.1"/><circle cx="14.5" cy="19.8" r="1.1"/><line x1="12" y1="16.5" x2="14.8" y2="8.5"/><line x1="15.5" y1="16.5" x2="19.5" y2="3.5"/><rect x="17.8" y="2" width="4.2" height="3" rx="0.6"/>`,
+    elliptical: `<circle cx="8" cy="15" r="6"/><circle cx="8" cy="21.2" r="1"/><line x1="11.4" y1="11.2" x2="10.3" y2="2.5"/><line x1="12.6" y1="12.6" x2="13.6" y2="3.2"/><rect x="9" y="1" width="1.6" height="2.8" rx="0.4"/><rect x="12.8" y="1.7" width="1.6" height="2.8" rx="0.4"/><line x1="13.4" y1="13.6" x2="21.5" y2="11.8"/><line x1="13.6" y1="16.5" x2="21.5" y2="16"/><circle cx="21.7" cy="13.9" r="1.1"/>`,
+    stationaryBike: `<circle cx="5.5" cy="17" r="4"/><circle cx="18.5" cy="17" r="4"/><circle cx="5.5" cy="17" r="0.7" fill="currentColor" stroke="none"/><circle cx="18.5" cy="17" r="0.7" fill="currentColor" stroke="none"/><polyline points="5.5,17 11,7.5 18.5,17"/><line x1="11" y1="7.5" x2="8" y2="17"/><line x1="9.5" y1="9" x2="14" y2="9"/><line x1="11" y1="7.5" x2="14.5" y2="4.5"/><line x1="13" y1="4" x2="16.5" y2="5"/>`,
+    rowingMachine: `<rect x="1.5" y="19.3" width="17" height="1.6" rx="0.8"/><rect x="6.5" y="17.1" width="4.5" height="2.2" rx="0.6"/><circle cx="19.5" cy="16.5" r="3.2"/><line x1="16.3" y1="16.5" x2="4" y2="16.5"/><line x1="4" y1="14.8" x2="4" y2="18.2"/>`,
+    stairClimber: `<line x1="2" y1="22" x2="22" y2="22"/><line x1="4" y1="22" x2="4" y2="3"/><path d="M4 3 L6 3 L6 6.6 L9 6.6 L9 10.2 L12 10.2 L12 13.7 L20 22"/><line x1="13" y1="22" x2="13" y2="10.5"/>`,
+    tire: `<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="1.2" x2="12" y2="3"/><line x1="19.5" y1="4.5" x2="18.2" y2="6"/><line x1="22.3" y1="12" x2="20.5" y2="12"/><line x1="19.5" y1="19.5" x2="18.2" y2="18"/><line x1="12" y1="22.3" x2="12" y2="20.5"/><line x1="4.5" y1="19.5" x2="6" y2="18"/><line x1="1.2" y1="12" x2="3" y2="12"/><line x1="4.5" y1="4.5" x2="6" y2="6"/>`,
+    climbingRope: `<rect x="10.5" y="1" width="3" height="1.6" rx="0.4"/><path d="M12 2.6 C9 6 15 9 12 12 C9 15 15 18 12 22"/><circle cx="12.4" cy="9" r="0.6" fill="currentColor" stroke="none"/><circle cx="12.4" cy="16" r="0.6" fill="currentColor" stroke="none"/>`,
+    gymnasticRings: `<line x1="8" y1="2" x2="8" y2="7"/><line x1="16" y1="2" x2="16" y2="7"/><circle cx="8" cy="12" r="4.2"/><circle cx="16" cy="12" r="4.2"/>`,
+    flatBench: `<rect x="3" y="9" width="18" height="3" rx="1"/><line x1="6" y1="12" x2="6" y2="20"/><line x1="18" y1="12" x2="18" y2="20"/>`,
+    inclineBench: `<rect x="5" y="15" width="10" height="2.6" rx="0.8"/><line x1="7" y1="17.6" x2="7" y2="21"/><line x1="13" y1="17.6" x2="13" y2="21"/><polygon points="14,15 21,4 23,5 16,16"/>`,
+    declineBench: `<rect x="5" y="15" width="10" height="2.6" rx="0.8"/><line x1="7" y1="17.6" x2="7" y2="21"/><line x1="13" y1="17.6" x2="13" y2="21"/><polygon points="14.4,17 21.4,22.7 22.6,21.3 15.6,15.6"/>`,
+    preacherBench: `<rect x="14" y="15" width="7" height="2.6" rx="0.8"/><line x1="19" y1="17.6" x2="19" y2="21"/><polygon points="14.8,10.4 4.4,20.8 2.2,18.6 12.6,8.2"/><line x1="8" y1="13" x2="8" y2="21"/>`,
+    squatRack: `<line x1="5" y1="2" x2="5" y2="22"/><line x1="19" y1="2" x2="19" y2="22"/><line x1="4" y1="6" x2="6" y2="6"/><line x1="4" y1="9" x2="6" y2="9"/><line x1="4" y1="12" x2="6" y2="12"/><line x1="18" y1="6" x2="20" y2="6"/><line x1="18" y1="9" x2="20" y2="9"/><line x1="18" y1="12" x2="20" y2="12"/><line x1="5" y1="9" x2="19" y2="9"/><rect x="3.4" y="7.4" width="1.6" height="3.2" rx="0.4"/><rect x="19" y="7.4" width="1.6" height="3.2" rx="0.4"/><line x1="2" y1="22" x2="8" y2="22"/><line x1="16" y1="22" x2="22" y2="22"/>`,
+    pullUpBar: `<line x1="6" y1="2" x2="6" y2="8"/><line x1="18" y1="2" x2="18" y2="8"/><line x1="5" y1="8" x2="19" y2="8"/>`,
+    dipStation: `<line x1="3" y1="10" x2="21" y2="10"/><line x1="5" y1="7" x2="19" y2="7"/><line x1="5" y1="10" x2="5" y2="21"/><line x1="19" y1="10" x2="19" y2="21"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/>`,
+    plyoBox: `<rect x="4" y="9" width="12" height="12"/><polygon points="4,9 8,4 20,4 16,9"/><polygon points="16,9 20,4 20,16 16,21"/>`,
+    landmineAttachment: `<ellipse cx="6" cy="21" rx="3" ry="1.4"/><circle cx="6" cy="19" r="1.6"/><line x1="6" y1="19" x2="20" y2="5"/><polygon points="20.5,8.1 16.9,4.5 15.5,5.9 19.1,9.5"/>`
+  };
+
+  function uid() { return "id" + Math.random().toString(36).slice(2, 10); }
+  function fmt(n) { return (Math.round(n * 100) / 100).toString(); }
+  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+
+  // ---------- in-page alert/confirm/prompt replacements ----------
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+  function showAlert(message) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = '<div class="modal-box"><p>' + escapeHtml(message) + '</p><div class="btn-row"><button class="modal-ok primary">OK</button></div></div>';
+      document.body.appendChild(overlay);
+      const cleanup = () => { document.body.removeChild(overlay); resolve(); };
+      overlay.querySelector(".modal-ok").addEventListener("click", cleanup);
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(); });
+      overlay.querySelector(".modal-ok").focus();
+    });
+  }
+  // A quick, no-click-needed confirmation for actions that would
+  // otherwise be silent - a file download via a hidden <a>.click() has
+  // no browser-visible feedback of its own (no save dialog by default),
+  // so without this there's no way to tell whether "Save .json"/
+  // "Download .svg" actually did anything.
+  let toastTimer = null;
+  function showToast(message) {
+    let el = document.querySelector(".toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "toast";
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    clearTimeout(toastTimer);
+    el.classList.remove("show");
+    // Force layout so the class removal above actually commits before
+    // re-adding it below - without this, both changes can coalesce into
+    // one style pass and the opacity/transform transition never runs.
+    void el.offsetWidth;
+    el.classList.add("show");
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+  }
+  function showConfirm(message) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = '<div class="modal-box"><p>' + escapeHtml(message) + '</p><div class="btn-row"><button class="modal-cancel">Cancel</button><button class="modal-ok primary">OK</button></div></div>';
+      document.body.appendChild(overlay);
+      const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
+      overlay.querySelector(".modal-ok").addEventListener("click", () => cleanup(true));
+      overlay.querySelector(".modal-cancel").addEventListener("click", () => cleanup(false));
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(false); });
+      overlay.querySelector(".modal-ok").focus();
+    });
+  }
+  function showPrompt(message, initialValue) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = '<div class="modal-box"><p>' + escapeHtml(message) + '</p><input type="text" class="modal-input" value="' + escapeHtml(initialValue || "") + '"><div class="btn-row"><button class="modal-cancel">Cancel</button><button class="modal-ok primary">OK</button></div></div>';
+      document.body.appendChild(overlay);
+      const input = overlay.querySelector(".modal-input");
+      const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
+      overlay.querySelector(".modal-ok").addEventListener("click", () => cleanup(input.value));
+      overlay.querySelector(".modal-cancel").addEventListener("click", () => cleanup(null));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") cleanup(input.value);
+        if (e.key === "Escape") cleanup(null);
+      });
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(null); });
+      setTimeout(() => { input.focus(); input.select(); }, 0);
+    });
+  }
+  // Text-based project transfer - a fallback for when a real file
+  // download (Save .json/Download .svg, both a hidden <a download>.
+  // click()) silently does nothing, which happens when this page is
+  // running inside a sandboxed context that doesn't grant downloads
+  // (the click succeeds, nothing throws, but no file ever lands
+  // anywhere - indistinguishable from "broken" without knowing that).
+  // A plain <textarea> with real, manual text selection sidesteps that
+  // entirely - copying selected text is a native browser/OS action,
+  // not a scripted one, so it keeps working even where both the
+  // Clipboard API AND file downloads are blocked.
+  function showTextExport(text) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = '<div class="modal-box" style="max-width:520px;">' +
+        '<p>The text below is already selected - use your device\'s own Copy (Ctrl/Cmd+C, or tap the box and pick Copy from the menu that pops up) rather than the button if the button doesn\'t respond; that\'s your device doing the copying, not this page, so nothing here can block it. Paste it into a note, email, or file to move to another device, then use "Paste Text" there to load it back in.</p>' +
+        '<textarea class="modal-textarea" readonly style="width:100%; height:220px; font-family:var(--mono); font-size:11px; white-space:pre;"></textarea>' +
+        '<div class="btn-row"><button class="modal-copy">Copy</button><button class="modal-ok primary">Done</button></div></div>';
+      document.body.appendChild(overlay);
+      const ta = overlay.querySelector(".modal-textarea");
+      ta.value = text;
+      ta.addEventListener("focus", () => ta.select());
+      ta.addEventListener("click", () => ta.select());
+      const cleanup = () => { document.body.removeChild(overlay); resolve(); };
+      overlay.querySelector(".modal-copy").addEventListener("click", () => {
+        ta.focus(); ta.select();
+        let copied = false;
+        try { copied = document.execCommand("copy"); } catch (e) { copied = false; }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(ta.value).then(() => showToast("Copied to clipboard.")).catch(() => {
+            if (!copied) showToast("Couldn't copy automatically - the text is selected, press Ctrl/Cmd+C.");
+          });
+        } else if (copied) {
+          showToast("Copied to clipboard.");
+        } else {
+          showToast("Couldn't copy automatically - the text is selected, press Ctrl/Cmd+C.");
+        }
+      });
+      overlay.querySelector(".modal-ok").addEventListener("click", cleanup);
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(); });
+      setTimeout(() => { ta.focus(); ta.select(); }, 0);
+    });
+  }
+  function showTextImport() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = '<div class="modal-box" style="max-width:520px;">' +
+        '<p>Paste project JSON here (from "Copy as Text" on another device/browser) and load it - this replaces every icon currently in the editor.</p>' +
+        '<textarea class="modal-textarea" placeholder="Paste project JSON here..." style="width:100%; height:220px; font-family:var(--mono); font-size:11px; white-space:pre;"></textarea>' +
+        '<div class="btn-row"><button class="modal-cancel">Cancel</button><button class="modal-ok primary">Load</button></div></div>';
+      document.body.appendChild(overlay);
+      const ta = overlay.querySelector(".modal-textarea");
+      const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
+      overlay.querySelector(".modal-cancel").addEventListener("click", () => cleanup(null));
+      overlay.querySelector(".modal-ok").addEventListener("click", () => cleanup(ta.value));
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(null); });
+      setTimeout(() => ta.focus(), 0);
+    });
+  }
+
+  // ---------- path <-> anchor model ----------
+  // Anchors always carry hin/hout as {dx,dy} offsets from the anchor point
+  // (zero offset = straight segment). This lets any segment be dragged into
+  // a curve later without needing a separate "has handles" flag.
+  function pathD(anchors, closed) {
+    if (!anchors.length) return "";
+    const isZero = (h) => Math.abs(h.dx) < 0.001 && Math.abs(h.dy) < 0.001;
+    let d = "M " + fmt(anchors[0].x) + " " + fmt(anchors[0].y);
+    const n = anchors.length;
+    const segCount = closed ? n : n - 1;
+    for (let i = 0; i < segCount; i++) {
+      const a = anchors[i], b = anchors[(i + 1) % n];
+      if (isZero(a.hout) && isZero(b.hin)) {
+        d += " L " + fmt(b.x) + " " + fmt(b.y);
+      } else {
+        const c1x = a.x + a.hout.dx, c1y = a.y + a.hout.dy;
+        const c2x = b.x + b.hin.dx, c2y = b.y + b.hin.dy;
+        d += " C " + fmt(c1x) + " " + fmt(c1y) + ", " + fmt(c2x) + " " + fmt(c2y) + ", " + fmt(b.x) + " " + fmt(b.y);
+      }
+    }
+    if (closed) d += " Z";
+    return d;
+  }
+
+  function parsePathD(d) {
+    if (!d) return null;
+    const tokens = d.match(/[MLCQZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    if (!tokens) return null;
+    let i = 0;
+    const nextNum = () => parseFloat(tokens[i++]);
+    const anchors = [];
+    let closed = false;
+    try {
+      while (i < tokens.length) {
+        const cmd = tokens[i++];
+        if (cmd === "M" || cmd === "L") {
+          const x = nextNum(), y = nextNum();
+          anchors.push({ x, y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } });
+        } else if (cmd === "C") {
+          const c1x = nextNum(), c1y = nextNum(), c2x = nextNum(), c2y = nextNum(), x = nextNum(), y = nextNum();
+          const prev = anchors[anchors.length - 1];
+          if (!prev) return null;
+          prev.hout = { dx: c1x - prev.x, dy: c1y - prev.y };
+          anchors.push({ x, y, hin: { dx: c2x - x, dy: c2y - y }, hout: { dx: 0, dy: 0 } });
+        } else if (cmd === "Q") {
+          const qx = nextNum(), qy = nextNum(), x = nextNum(), y = nextNum();
+          const prev = anchors[anchors.length - 1];
+          if (!prev) return null;
+          const c1x = prev.x + (2 / 3) * (qx - prev.x), c1y = prev.y + (2 / 3) * (qy - prev.y);
+          const c2x = x + (2 / 3) * (qx - x), c2y = y + (2 / 3) * (qy - y);
+          prev.hout = { dx: c1x - prev.x, dy: c1y - prev.y };
+          anchors.push({ x, y, hin: { dx: c2x - x, dy: c2y - y }, hout: { dx: 0, dy: 0 } });
+        } else if (cmd === "Z") {
+          closed = true;
+        } else {
+          return null;
+        }
+      }
+    } catch (e) { return null; }
+    if (!anchors.length || anchors.some((a) => Number.isNaN(a.x) || Number.isNaN(a.y))) return null;
+    return { anchors, closed };
+  }
+
+  // ---------- boolean subtract: derive a raw closed path 'd' per shape type,
+  // so two shapes can be concatenated into one evenodd-filled compound path
+  // (the overlap between them reads as a hole, no polygon-clipping math needed) ----------
+  function rectToPathD(x, y, w, h, rx, ry) {
+    rx = Math.max(0, Math.min(rx || 0, w / 2));
+    ry = Math.max(0, Math.min((ry != null ? ry : rx) || 0, h / 2));
+    if (rx < 0.01 && ry < 0.01) {
+      return "M " + fmt(x) + " " + fmt(y) + " L " + fmt(x + w) + " " + fmt(y) + " L " + fmt(x + w) + " " + fmt(y + h) + " L " + fmt(x) + " " + fmt(y + h) + " Z";
+    }
+    return "M " + fmt(x + rx) + " " + fmt(y) +
+      " L " + fmt(x + w - rx) + " " + fmt(y) + " A " + fmt(rx) + " " + fmt(ry) + " 0 0 1 " + fmt(x + w) + " " + fmt(y + ry) +
+      " L " + fmt(x + w) + " " + fmt(y + h - ry) + " A " + fmt(rx) + " " + fmt(ry) + " 0 0 1 " + fmt(x + w - rx) + " " + fmt(y + h) +
+      " L " + fmt(x + rx) + " " + fmt(y + h) + " A " + fmt(rx) + " " + fmt(ry) + " 0 0 1 " + fmt(x) + " " + fmt(y + h - ry) +
+      " L " + fmt(x) + " " + fmt(y + ry) + " A " + fmt(rx) + " " + fmt(ry) + " 0 0 1 " + fmt(x + rx) + " " + fmt(y) + " Z";
+  }
+  function ellipseToPathD(cx, cy, rx, ry) {
+    return "M " + fmt(cx - rx) + " " + fmt(cy) +
+      " A " + fmt(rx) + " " + fmt(ry) + " 0 1 1 " + fmt(cx + rx) + " " + fmt(cy) +
+      " A " + fmt(rx) + " " + fmt(ry) + " 0 1 1 " + fmt(cx - rx) + " " + fmt(cy) + " Z";
+  }
+  // Shifts every coordinate pair in an M/L/C/A/Z path by (dx,dy) — used to
+  // move compound (boolean-result) shapes, which store a raw 'd' instead of
+  // editable anchors. Arc radii/rotation/flags are left untouched.
+  function translatePathD(d, dx, dy) {
+    const tokens = d.match(/[MLCAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    if (!tokens) return d;
+    let i = 0;
+    const nextNum = () => parseFloat(tokens[i++]);
+    const out = [];
+    while (i < tokens.length) {
+      const cmd = tokens[i++];
+      if (cmd === "M" || cmd === "L") {
+        const x = nextNum(), y = nextNum();
+        out.push(cmd, fmt(x + dx), fmt(y + dy));
+      } else if (cmd === "C") {
+        const c1x = nextNum(), c1y = nextNum(), c2x = nextNum(), c2y = nextNum(), x = nextNum(), y = nextNum();
+        out.push(cmd, fmt(c1x + dx), fmt(c1y + dy), fmt(c2x + dx), fmt(c2y + dy), fmt(x + dx), fmt(y + dy));
+      } else if (cmd === "A") {
+        const rx = nextNum(), ry = nextNum(), rot = nextNum(), large = nextNum(), sweep = nextNum(), x = nextNum(), y = nextNum();
+        out.push(cmd, fmt(rx), fmt(ry), fmt(rot), large, sweep, fmt(x + dx), fmt(y + dy));
+      } else if (cmd === "Z") {
+        out.push(cmd);
+      } else {
+        return d;
+      }
+    }
+    return out.join(" ");
+  }
+  // ---------- rotation ----------
+  function rotatePoint(p, center, angleDeg) {
+    const rad = (angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const dx = p.x - center.x, dy = p.y - center.y;
+    return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
+  }
+  // Same "skewX(a) skewY(b)" composed-matrix math as skewPathD's local
+  // skew() closure - kept as one shared point transform so shapeBbox's
+  // marquee-select math and the path-baking code can't drift apart.
+  function skewPoint(p, center, skewXDeg, skewYDeg) {
+    const tanX = Math.tan((skewXDeg * Math.PI) / 180), tanY = Math.tan((skewYDeg * Math.PI) / 180);
+    const dx = p.x - center.x, dy = p.y - center.y;
+    return { x: center.x + dx * (1 + tanX * tanY) + dy * tanX, y: center.y + dy + dx * tanY };
+  }
+  function anchorsBbox(anchors) {
+    const xs = anchors.map((a) => a.x), ys = anchors.map((a) => a.y);
+    const minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+    const minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+  function bboxFromD(d) {
+    const tmp = document.createElementNS(SVGNS, "path");
+    tmp.setAttribute("d", d);
+    tmp.style.visibility = "hidden";
+    svgRoot.appendChild(tmp);
+    let b;
+    try { b = tmp.getBBox(); } catch (e) { b = { x: 0, y: 0, width: 1, height: 1 }; }
+    svgRoot.removeChild(tmp);
+    return { x: b.x, y: b.y, w: b.width, h: b.height };
+  }
+  // A compound shape's own visual extent: clipD (the shape actually
+  // being cut, for a Cut result - see subtractShapes) when present,
+  // since that's what's actually visible on screen; the full
+  // concatenated d otherwise (a Merge/union result has no clipD - its
+  // full extent genuinely is the visible shape). Used everywhere a
+  // compound's bbox/center is needed, so resize handles, rotation
+  // center, and marquee-select all agree with what's actually rendered
+  // instead of including a Cut result's invisible clipped-away excess.
+  function compoundVisualD(s) {
+    return s.clipD || s.d;
+  }
+  function shapeCenter(s) {
+    if (s.type === "rect") return { x: s.x + s.w / 2, y: s.y + s.h / 2 };
+    if (s.type === "ellipse") return { x: s.cx, y: s.cy };
+    if (s.type === "line") return { x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2 };
+    if (s.type === "path" && s.anchors.length) { const b = anchorsBbox(s.anchors); return { x: b.x + b.w / 2, y: b.y + b.h / 2 }; }
+    if (s.type === "compound") { const b = bboxFromD(compoundVisualD(s)); return { x: b.x + b.w / 2, y: b.y + b.h / 2 }; }
+    return { x: 0, y: 0 };
+  }
+  function rotateHandlePos(s) {
+    const c = shapeCenter(s);
+    let topY;
+    if (s.type === "rect" || s.type === "ellipse") topY = bboxOf(s).y;
+    else if (s.type === "path") topY = anchorsBbox(s.anchors).y;
+    else topY = bboxFromD(compoundVisualD(s)).y;
+    const offset = Math.max(1.5, project.viewBox.h * 0.06);
+    return { x: c.x, y: topY - offset };
+  }
+  function transformAttr(s) {
+    const skewX = s.skewX || 0, skewY = s.skewY || 0;
+    if (!s.rotation && !skewX && !skewY) return "";
+    const c = shapeCenter(s);
+    const parts = [];
+    if (s.rotation) parts.push("rotate(" + fmt(s.rotation) + " " + fmt(c.x) + " " + fmt(c.y) + ")");
+    if (skewX || skewY) {
+      // skewX/skewY only skew around the origin in SVG, so wrap with a
+      // translate to the shape's own center and back - this makes rotate
+      // (already center-relative) apply last/outermost, on top of the
+      // already-skewed shape, matching skewPathD's baking order below.
+      parts.push("translate(" + fmt(c.x) + " " + fmt(c.y) + ")");
+      if (skewX) parts.push("skewX(" + fmt(skewX) + ")");
+      if (skewY) parts.push("skewY(" + fmt(skewY) + ")");
+      parts.push("translate(" + fmt(-c.x) + " " + fmt(-c.y) + ")");
+    }
+    return ' transform="' + parts.join(" ") + '"';
+  }
+  // Rotates every coordinate in an M/L/C/A/Z path around a center point —
+  // used so a boolean-cut input shape's own rotation is baked into the
+  // combined compound path (which only carries one rotation of its own).
+  function rotatePathD(d, angleDeg, center) {
+    if (!angleDeg) return d;
+    const rad = (angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const rot = (x, y) => {
+      const dx = x - center.x, dy = y - center.y;
+      return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
+    };
+    const tokens = d.match(/[MLCAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    if (!tokens) return d;
+    let i = 0;
+    const nextNum = () => parseFloat(tokens[i++]);
+    const out = [];
+    while (i < tokens.length) {
+      const cmd = tokens[i++];
+      if (cmd === "M" || cmd === "L") {
+        const p = rot(nextNum(), nextNum());
+        out.push(cmd, fmt(p.x), fmt(p.y));
+      } else if (cmd === "C") {
+        const c1 = rot(nextNum(), nextNum()), c2 = rot(nextNum(), nextNum()), e = rot(nextNum(), nextNum());
+        out.push(cmd, fmt(c1.x), fmt(c1.y), fmt(c2.x), fmt(c2.y), fmt(e.x), fmt(e.y));
+      } else if (cmd === "A") {
+        const rx = nextNum(), ry = nextNum(), xrot = nextNum(), large = nextNum(), sweep = nextNum();
+        const e = rot(nextNum(), nextNum());
+        out.push(cmd, fmt(rx), fmt(ry), fmt(xrot + angleDeg), large, sweep, fmt(e.x), fmt(e.y));
+      } else if (cmd === "Z") {
+        out.push(cmd);
+      } else return d;
+    }
+    return out.join(" ");
+  }
+  // Skews every coordinate in an M/L/C/A/Z path around a center point -
+  // mirrors rotatePathD's structure, used so a boolean-merge input
+  // shape's own skew is baked into the combined compound path. Applied
+  // BEFORE rotatePathD in shapeToRawD (skew is the innermost/first
+  // transform in transformAttr's composition, rotate is outermost/
+  // last) - the combined offset below is the exact matrix product for
+  // that "skewX(a) skewY(b)" order, not just two independent shears,
+  // so a merged shape's baked geometry matches its on-canvas look
+  // exactly whenever both skewX and skewY are set together.
+  // A circle/ellipse DOES skew into another ellipse - shear a unit
+  // circle and you get an ellipse with new radii and a rotated axis,
+  // not the same circle with a moved center. rx/ry/x-axis-rotation
+  // have to be recomputed, not left as-is, or a rounded rect's corner
+  // arc renders wrong the moment it goes through shapeToRawD (Merge,
+  // Cut, or Knockout - all three bake a skewed shape's geometry into a
+  // raw path this way). Standard closed-form 2x2 SVD: represent the
+  // original arc's ellipse as matrix A = R(xrot0) * diag(rx0,ry0)
+  // (maps the unit circle to it), left-multiply by the skew's own 2x2
+  // linear matrix M, then decompose M*A back into a new rx'/ry'/xrot'.
+  function mat2mul(m1, m2) {
+    return [
+      m1[0] * m2[0] + m1[1] * m2[2], m1[0] * m2[1] + m1[1] * m2[3],
+      m1[2] * m2[0] + m1[3] * m2[2], m1[2] * m2[1] + m1[3] * m2[3]
+    ];
+  }
+  function svd2x2Ellipse(m) {
+    const [a, b, c, d] = m;
+    const E = (a + d) / 2, F = (a - d) / 2, G = (c + b) / 2, H = (c - b) / 2;
+    const Q = Math.hypot(E, H), R = Math.hypot(F, G);
+    const s1 = Q + R, s2 = Q - R;
+    const a1 = Math.atan2(G, F), a2 = Math.atan2(H, E);
+    const phi = (a2 + a1) / 2;
+    return { rx: Math.abs(s1), ry: Math.abs(s2), xrotDeg: (phi * 180) / Math.PI };
+  }
+  function skewArcRadii(rx0, ry0, xrot0Deg, skewXDeg, skewYDeg) {
+    const xrot0 = (xrot0Deg * Math.PI) / 180;
+    const A = [rx0 * Math.cos(xrot0), -ry0 * Math.sin(xrot0), rx0 * Math.sin(xrot0), ry0 * Math.cos(xrot0)];
+    const tanX = Math.tan((skewXDeg * Math.PI) / 180), tanY = Math.tan((skewYDeg * Math.PI) / 180);
+    const M = [1 + tanX * tanY, tanX, tanY, 1];
+    return svd2x2Ellipse(mat2mul(M, A));
+  }
+  function skewPathD(d, skewXDeg, skewYDeg, center) {
+    if (!skewXDeg && !skewYDeg) return d;
+    const skew = (x, y) => skewPoint({ x, y }, center, skewXDeg, skewYDeg);
+    const tokens = d.match(/[MLCAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    if (!tokens) return d;
+    let i = 0;
+    const nextNum = () => parseFloat(tokens[i++]);
+    const out = [];
+    while (i < tokens.length) {
+      const cmd = tokens[i++];
+      if (cmd === "M" || cmd === "L") {
+        const p = skew(nextNum(), nextNum());
+        out.push(cmd, fmt(p.x), fmt(p.y));
+      } else if (cmd === "C") {
+        const c1 = skew(nextNum(), nextNum()), c2 = skew(nextNum(), nextNum()), e = skew(nextNum(), nextNum());
+        out.push(cmd, fmt(c1.x), fmt(c1.y), fmt(c2.x), fmt(c2.y), fmt(e.x), fmt(e.y));
+      } else if (cmd === "A") {
+        const rx = nextNum(), ry = nextNum(), xrot = nextNum(), large = nextNum(), sweep = nextNum();
+        const e = skew(nextNum(), nextNum());
+        // det(shear matrix) is always 1 (1+tanX*tanY - tanX*tanY), so
+        // the shear never mirrors - large-arc/sweep flags stay valid as-is,
+        // only the ellipse's own shape (radii + axis angle) changes.
+        const ell = skewArcRadii(rx, ry, xrot, skewXDeg, skewYDeg);
+        out.push(cmd, fmt(ell.rx), fmt(ell.ry), fmt(ell.xrotDeg), large, sweep, fmt(e.x), fmt(e.y));
+      } else if (cmd === "Z") {
+        out.push(cmd);
+      } else return d;
+    }
+    return out.join(" ");
+  }
+  function inferRotation(node) {
+    const t = node.getAttribute("transform");
+    if (!t) return 0;
+    const m = t.match(/rotate\(\s*(-?\d*\.?\d+)/);
+    return m ? parseFloat(m[1]) : 0;
+  }
+  // inferRotation's counterpart - only ever pulled the rotate() angle
+  // back out of a pasted transform, never skewX()/skewY(), so an
+  // imported shape that had BOTH silently came back rotation-only:
+  // still turned, but with the shear (what actually makes an isometric
+  // rect look like a parallelogram) just gone. Same regex-on-the-raw-
+  // transform-string approach as inferRotation, since this tool's own
+  // export always writes skewX/skewY as their own named functions.
+  function inferSkew(node) {
+    const t = node.getAttribute("transform");
+    if (!t) return { skewX: 0, skewY: 0 };
+    const mx = t.match(/skewX\(\s*(-?\d*\.?\d+)/);
+    const my = t.match(/skewY\(\s*(-?\d*\.?\d+)/);
+    return { skewX: mx ? parseFloat(mx[1]) : 0, skewY: my ? parseFloat(my[1]) : 0 };
+  }
+  // Every transform this tool has EVER written keeps a shape's own x/y
+  // (or cx/cy, or path anchors) absolute, folding any translate() into
+  // a self-cancelling pair - EXCEPT optimizeExportMarkup's recentered
+  // form (`translate(tx ty) rotate(r) skewX/Y(a)`, no closing
+  // translate), which deliberately stores x/y relative to (tx,ty) to
+  // shave repeated numbers. Re-importing that without adding (tx,ty)
+  // back leaves every shape sitting near the origin instead of its
+  // real position - distinguished from the older, still-possible
+  // rotate(angle cx cy) form by rotate() here having only ONE argument
+  // (no center - it doesn't need one, translate already supplied it).
+  function inferRecenterOffset(node) {
+    const t = node.getAttribute("transform");
+    const m = t && t.match(/^translate\(\s*(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s*\)\s*rotate\(\s*-?\d*\.?\d+\s*\)/);
+    return m ? { tx: parseFloat(m[1]), ty: parseFloat(m[2]) } : { tx: 0, ty: 0 };
+  }
+  // Axis-aligned bbox in global space, accounting for rotation (used for
+  // marquee-select hit testing) — rotates the unrotated bbox's 4 corners
+  // and takes their extent, since a rotated shape's true screen footprint
+  // is wider than its stored local x/y/w/h.
+  function shapeBbox(s) {
+    let b;
+    if (s.type === "rect" || s.type === "ellipse") b = bboxOf(s);
+    else if (s.type === "line") b = { x: Math.min(s.x1, s.x2), y: Math.min(s.y1, s.y2), w: Math.abs(s.x2 - s.x1), h: Math.abs(s.y2 - s.y1) };
+    else if (s.type === "path") b = s.anchors.length ? anchorsBbox(s.anchors) : { x: 0, y: 0, w: 0, h: 0 };
+    else if (s.type === "compound") b = bboxFromD(compoundVisualD(s));
+    else b = { x: 0, y: 0, w: 0, h: 0 };
+    if ((s.rotation || s.skewX || s.skewY) && s.type !== "line") {
+      const c = shapeCenter(s);
+      let corners = [
+        { x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x, y: b.y + b.h }, { x: b.x + b.w, y: b.y + b.h }
+      ];
+      // Same skew-then-rotate order as transformAttr/skewPathD, so the
+      // marquee-select box matches what's actually on screen.
+      if (s.skewX || s.skewY) corners = corners.map((pt) => skewPoint(pt, c, s.skewX || 0, s.skewY || 0));
+      if (s.rotation) corners = corners.map((pt) => rotatePoint(pt, c, s.rotation));
+      const xs = corners.map((p) => p.x), ys = corners.map((p) => p.y);
+      const minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+      const minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+      b = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
+    return b;
+  }
+  function bboxIntersects(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  // Whether two raw path 'd' strings actually overlap - leans entirely
+  // on the browser's own exact SVG geometry (getTotalLength/
+  // getPointAtLength to sample each boundary, isPointInFill to test a
+  // point against the other shape's fill), the same "let the browser be
+  // the geometry oracle" trick bboxFromD already uses via getBBox().
+  // Samples N points along EACH boundary and tests them against the
+  // OTHER shape - catches both "boundaries cross" and "one shape is
+  // entirely inside the other" (whose own boundary never crosses the
+  // outer one), which a bbox check alone can't tell apart from "no
+  // overlap at all".
+  function shapesOverlap(dA, dB) {
+    const bboxA = bboxFromD(dA), bboxB = bboxFromD(dB);
+    if (!bboxIntersects(bboxA, bboxB)) return false;
+    const elA = document.createElementNS(SVGNS, "path");
+    elA.setAttribute("d", dA);
+    const elB = document.createElementNS(SVGNS, "path");
+    elB.setAttribute("d", dB);
+    svgRoot.appendChild(elA);
+    svgRoot.appendChild(elB);
+    try {
+      const sample = (el, count) => {
+        const len = el.getTotalLength();
+        const pts = [];
+        for (let i = 0; i < count; i++) pts.push(el.getPointAtLength((i / count) * len));
+        return pts;
+      };
+      const inside = (pt, el) => {
+        const svgPt = svgRoot.createSVGPoint();
+        svgPt.x = pt.x; svgPt.y = pt.y;
+        try { return el.isPointInFill(svgPt); } catch (e) { return false; }
+      };
+      const N = 32;
+      const ptsA = sample(elA, N), ptsB = sample(elB, N);
+      return ptsA.some((pt) => inside(pt, elB)) || ptsB.some((pt) => inside(pt, elA));
+    } finally {
+      svgRoot.removeChild(elA);
+      svgRoot.removeChild(elB);
+    }
+  }
+  // ---------- freehand: simplify a raw pointer trail, then fit smooth
+  // curve handles through what's left ----------
+  function pointToSegmentDist(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  }
+  function rdpSimplify(points, epsilon) {
+    if (points.length < 3) return points.slice();
+    let maxDist = 0, index = 0;
+    const start = points[0], end = points[points.length - 1];
+    for (let i = 1; i < points.length - 1; i++) {
+      const d = pointToSegmentDist(points[i], start, end);
+      if (d > maxDist) { maxDist = d; index = i; }
+    }
+    if (maxDist > epsilon) {
+      const left = rdpSimplify(points.slice(0, index + 1), epsilon);
+      const right = rdpSimplify(points.slice(index), epsilon);
+      return left.slice(0, -1).concat(right);
+    }
+    return [start, end];
+  }
+  // RDP only ever decides which raw points to KEEP or DISCARD - it never
+  // moves any of them, so a genuinely shaky/zigzagging trace can survive
+  // it almost untouched (each little back-and-forth wobble is its own
+  // local deviation peak, which is exactly what RDP is built to preserve).
+  // This is what actually removes that jitter: blend each interior point
+  // toward the average of itself and its neighbors, repeated `passes`
+  // times - a few passes of a cheap 3-tap box filter approximates a
+  // wider Gaussian blur along the stroke. Endpoints are pinned exactly
+  // (never blended) so the stroke still starts/ends where the hand
+  // actually lifted, just with the wobble along the way smoothed out.
+  function smoothPointTrail(points, passes) {
+    let pts = points;
+    for (let pass = 0; pass < passes && pts.length > 2; pass++) {
+      const next = pts.map((p, i) => {
+        if (i === 0 || i === pts.length - 1) return p;
+        return { x: (pts[i - 1].x + pts[i].x + pts[i + 1].x) / 3, y: (pts[i - 1].y + pts[i].y + pts[i + 1].y) / 3 };
+      });
+      pts = next;
+    }
+    return pts;
+  }
+  // Runs the Smooth slider's full pipeline (blur passes, then RDP
+  // thinning) over a raw point trail - shared by the Freehand tool's
+  // release handler and the "Smooth" button that re-applies this to an
+  // already-drawn path. Tolerance is a small zoom-relative baseline
+  // (screen-pixel-consistent, so fine jitter reads the same regardless
+  // of zoom) plus a quadratic-ramping, zoom-*independent* term that
+  // dominates near the top of the slider - large enough to flatten a
+  // gentle curve toward its straight chord, not just prune sample
+  // points along its existing shape. (Toned down from an earlier pass
+  // that made 100% too aggressive - lower the two constants below,
+  // 14/5, together if it still needs pulling back further.)
+  function simplifyPointTrail(points, zoomVal) {
+    const t = freehandSmoothing / 100;
+    const smoothed = smoothPointTrail(points, Math.round(t * 14));
+    const tolerance = clamp(3 / zoomVal + t * t * 5, 0.02, 8);
+    let simplified = rdpSimplify(smoothed, tolerance);
+    if (simplified.length < 2) simplified = [points[0], points[points.length - 1]];
+    return simplified;
+  }
+  // Gives each point a tangent handle proportional to the chord between its
+  // neighbors (Catmull-Rom style) — turns a simplified polyline into a
+  // naturally flowing curve instead of sharp straight segments.
+  function pointsToSmoothAnchors(points, closed) {
+    const n = points.length;
+    if (n < 2) return [];
+    const anchors = points.map((p) => ({ x: p.x, y: p.y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } }));
+    const smoothing = 0.2;
+    for (let i = 0; i < n; i++) {
+      const prev = points[closed ? (i - 1 + n) % n : Math.max(0, i - 1)];
+      const next = points[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
+      const tx = (next.x - prev.x) * smoothing, ty = (next.y - prev.y) * smoothing;
+      if (i > 0 || closed) anchors[i].hin = { dx: -tx, dy: -ty };
+      if (i < n - 1 || closed) anchors[i].hout = { dx: tx, dy: ty };
+    }
+    return anchors;
+  }
+  // Evaluates the cubic bezier from anchor a to anchor b (a.hout/b.hin as
+  // the two control points, matching pathD's own C-command construction)
+  // at `samples` evenly-spaced steps - excludes the segment's own end
+  // point, since the next segment's start covers it (or samplePathPoints
+  // appends the true final endpoint itself for an open path).
+  function sampleBezierSegment(a, b, samples) {
+    const p1x = a.x + a.hout.dx, p1y = a.y + a.hout.dy;
+    const p2x = b.x + b.hin.dx, p2y = b.y + b.hin.dy;
+    const out = [];
+    for (let i = 0; i < samples; i++) {
+      const tt = i / samples, mt = 1 - tt;
+      out.push({
+        x: mt * mt * mt * a.x + 3 * mt * mt * tt * p1x + 3 * mt * tt * tt * p2x + tt * tt * tt * b.x,
+        y: mt * mt * mt * a.y + 3 * mt * mt * tt * p1y + 3 * mt * tt * tt * p2y + tt * tt * tt * b.y,
+      });
+    }
+    return out;
+  }
+  // Recovers a dense raw point trail from an already-built path shape's
+  // anchors - lets the "Smooth" button re-run the exact same pipeline
+  // the Freehand tool uses on release against a shape that was drawn
+  // some other way (Curve tool, import), or came out too jittery the
+  // first time.
+  function samplePathPoints(anchors, closed, samplesPerSegment) {
+    const n = anchors.length;
+    if (n < 2) return anchors.map((a) => ({ x: a.x, y: a.y }));
+    const segCount = closed ? n : n - 1;
+    const out = [];
+    for (let i = 0; i < segCount; i++) {
+      out.push(...sampleBezierSegment(anchors[i], anchors[(i + 1) % n], samplesPerSegment));
+    }
+    if (!closed) out.push({ x: anchors[n - 1].x, y: anchors[n - 1].y });
+    return out;
+  }
+  function smoothPathShape(id) {
+    const s = getShapeById(id);
+    if (!s || s.type !== "path" || s.anchors.length < 2) return;
+    const rawPoints = samplePathPoints(s.anchors, s.closed, 12);
+    const simplified = simplifyPointTrail(rawPoints, zoom);
+    const anchors = pointsToSmoothAnchors(simplified, s.closed);
+    if (anchors.length >= 2) {
+      s.anchors = anchors;
+      pushHistory(); saveProject(); render();
+    }
+  }
+  function shapeToRawD(s) {
+    let d;
+    if (s.type === "rect") d = rectToPathD(s.x, s.y, s.w, s.h, s.rx || 0, s.rx || 0);
+    else if (s.type === "ellipse") d = ellipseToPathD(s.cx, s.cy, s.rx, s.ry);
+    else if (s.type === "path") d = pathD(s.anchors, true);
+    // A Cut-result compound's clipD (its silhouette clip) is intentionally
+    // NOT applied here — feeding this raw d into a further Cut/Merge would
+    // need clipD intersected into the boolean op itself, not just applied
+    // as a paint-time clip. Out of scope; a further op on a Cut result can
+    // reintroduce the same excess-geometry artifact clipD normally hides.
+    else if (s.type === "compound") d = s.d;
+    else return null;
+    if (s.skewX || s.skewY) d = skewPathD(d, s.skewX || 0, s.skewY || 0, shapeCenter(s));
+    if (s.rotation) d = rotatePathD(d, s.rotation, shapeCenter(s));
+    return d;
+  }
+
+  function inferStyle(node) {
+    const fill = node.getAttribute("fill");
+    const stroke = node.getAttribute("stroke");
+    const sw = parseFloat(node.getAttribute("stroke-width")) || 1.6;
+    let style = "outline";
+    if (fill && fill !== "none" && (!stroke || stroke === "none")) style = "filled";
+    else if (fill && fill !== "none" && stroke && stroke !== "none") style = "both";
+    return { style, strokeWidth: sw };
+  }
+
+  function parseMarkupToShapes(text) {
+    const doc = new DOMParser().parseFromString('<svg xmlns="' + SVGNS + '">' + text + "</svg>", "image/svg+xml");
+    if (doc.querySelector("parsererror")) return { shapes: [], skipped: 1 };
+    const root = doc.documentElement;
+    const out = [];
+    let skipped = 0;
+    // This tool's own Cut export is three siblings - a <mask> (the kept
+    // shape's outline in white, the cutter's outline in black), a
+    // <clipPath> (same kept outline again, for hit-testing), and the
+    // visible <path mask="url(#...)">. Reconstruct those three back into
+    // one compound shape (clipD/frontD, same shape it'd be right after a
+    // live Cut) BEFORE the generic per-tag loop below gets a chance to -
+    // mask/clipPath aren't shapes it recognizes at all, and the visible
+    // path's own `d` is full of arc ("A") commands that parsePathD can't
+    // parse either, so without this both would just vanish on import.
+    // Knockout's own export is the same <mask> idea, but the sibling
+    // referencing it is a <g mask="url(#...)"> wrapping every normal
+    // (non-knockout) shape, not a single <path> - a plain "g" isn't a
+    // tag the per-node loop below handles at all, so without this the
+    // whole group (every shape inside it) would vanish on import, not
+    // just the mask/cutter.
+    const consumed = new Set();
+    Array.from(root.children).forEach((node) => {
+      if (node.tagName.toLowerCase() !== "mask") return;
+      // The white "keep" base is a <path> for a Cut mask (clipD - the
+      // back shape's own silhouette) but a plain full-canvas <rect> for
+      // a Knockout mask (applyKnockoutMask's safety background, not a
+      // real shape) - can't assume both mask children are <path>s the
+      // way this originally did. The black "cut" layer is always a
+      // <path> (frontD) in both cases - find each by its own fill
+      // color instead of by position/tag.
+      const blackPath = Array.from(node.children).find((c) => c.tagName.toLowerCase() === "path" && c.getAttribute("fill") === "#000");
+      const whitePath = Array.from(node.children).find((c) => c.tagName.toLowerCase() === "path" && c.getAttribute("fill") === "#fff");
+      if (!blackPath) return;
+      const frontD = blackPath.getAttribute("d");
+      const clipD = whitePath && whitePath.getAttribute("d");
+      const maskId = node.getAttribute("id");
+      if (!maskId) return;
+      const visiblePath = Array.from(root.children).find((c) => c.tagName.toLowerCase() === "path" && (c.getAttribute("mask") || "").indexOf("#" + maskId) >= 0);
+      const visibleGroup = !visiblePath && Array.from(root.children).find((c) => c.tagName.toLowerCase() === "g" && (c.getAttribute("mask") || "").indexOf("#" + maskId) >= 0);
+      if (visiblePath) {
+        if (!clipD || !frontD) return;
+        out.push({ id: uid(), type: "compound", d: clipD + " " + frontD, clipD: clipD, frontD: frontD, rotation: inferRotation(visiblePath), ...inferStyle(visiblePath) });
+        consumed.add(visiblePath);
+      } else if (visibleGroup) {
+        if (!frontD) return;
+        out.push({ id: uid(), type: "compound", op: "union", d: frontD, knockout: true, style: "filled", strokeWidth: 1.6 });
+        Array.from(visibleGroup.children).forEach((child) => {
+          const parsed = parseOneShapeNode(child);
+          if (parsed) out.push(parsed); else skipped++;
+        });
+        consumed.add(visibleGroup);
+      } else {
+        return;
+      }
+      consumed.add(node);
+      const clipPathEl = Array.from(root.children).find((c) => c.tagName.toLowerCase() === "clippath");
+      if (clipPathEl) consumed.add(clipPathEl);
+    });
+    // Parses one rect/circle/ellipse/line/polygon/polyline/path element
+    // into this tool's shape shape - shared by the top-level loop below
+    // and the knockout group-recursion above, so a <g mask> full of
+    // ordinary shapes goes through the exact same per-tag handling a
+    // top-level element would.
+    function parseOneShapeNode(node) {
+      const tag = node.tagName.toLowerCase();
+      try {
+        if (tag === "rect") {
+          const off = inferRecenterOffset(node);
+          return { id: uid(), type: "rect", x: (+node.getAttribute("x") || 0) + off.tx, y: (+node.getAttribute("y") || 0) + off.ty,
+            w: +node.getAttribute("width") || 0, h: +node.getAttribute("height") || 0, rx: +node.getAttribute("rx") || 0,
+            rotation: inferRotation(node), ...inferSkew(node), ...inferStyle(node) };
+        } else if (tag === "circle") {
+          const r = +node.getAttribute("r") || 0;
+          const off = inferRecenterOffset(node);
+          return { id: uid(), type: "ellipse", cx: (+node.getAttribute("cx") || 0) + off.tx, cy: (+node.getAttribute("cy") || 0) + off.ty,
+            rx: r, ry: r, rotation: inferRotation(node), ...inferSkew(node), ...inferStyle(node) };
+        } else if (tag === "ellipse") {
+          const off = inferRecenterOffset(node);
+          return { id: uid(), type: "ellipse", cx: (+node.getAttribute("cx") || 0) + off.tx, cy: (+node.getAttribute("cy") || 0) + off.ty,
+            rx: +node.getAttribute("rx") || 0, ry: +node.getAttribute("ry") || 0, rotation: inferRotation(node), ...inferSkew(node), ...inferStyle(node) };
+        } else if (tag === "line") {
+          return { id: uid(), type: "line", x1: +node.getAttribute("x1") || 0, y1: +node.getAttribute("y1") || 0,
+            x2: +node.getAttribute("x2") || 0, y2: +node.getAttribute("y2") || 0,
+            style: "outline", strokeWidth: parseFloat(node.getAttribute("stroke-width")) || 1.6 };
+        } else if (tag === "polygon" || tag === "polyline") {
+          const raw = (node.getAttribute("points") || "").trim();
+          if (!raw) return null;
+          const anchors = raw.split(/\s+/).map((pair) => {
+            const [x, y] = pair.split(",").map(Number);
+            return { x, y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } };
+          });
+          return { id: uid(), type: "path", anchors, closed: tag === "polygon", rotation: inferRotation(node), ...inferSkew(node), ...inferStyle(node) };
+        } else if (tag === "path") {
+          const d = node.getAttribute("d");
+          // A Merge/union export is one <path> whose `d` concatenates
+          // multiple DELIBERATELY overlapping M...Z subpaths (see
+          // mergeSelected/shapeMarkup's "op === union" branch) -
+          // parsePathD only ever reconstructs ONE subpath's worth of
+          // anchors, so re-parsing a multi-subpath `d` that way would
+          // silently drop every subpath after the first. Keep it a raw
+          // compound instead, same as a live Merge result.
+          if (d && (d.match(/M/gi) || []).length > 1) {
+            const compound = { id: uid(), type: "compound", d: d, rotation: inferRotation(node), ...inferStyle(node) };
+            if (node.getAttribute("fill-rule") === "evenodd") {
+              // An older-style Cut export (before clipD/frontD existed) -
+              // evenodd is this tool's signal for "subtract", not union.
+              // Its <clipPath> sibling (if present) at least recovers
+              // clipD, giving the same imperfect-but-functional rendering
+              // this tool used before the mask rewrite, rather than
+              // nothing - frontD genuinely isn't recoverable from this
+              // older format, so a further cut/move on it may still show
+              // the old excess-geometry artifact the mask rewrite fixed.
+              const clipRef = (node.getAttribute("clip-path") || "").match(/#([^)"]+)/);
+              const clipPathEl = clipRef && root.querySelector("#" + CSS.escape(clipRef[1]));
+              const clipPathD = clipPathEl && clipPathEl.querySelector("path");
+              if (clipPathD) compound.clipD = clipPathD.getAttribute("d");
+            } else {
+              compound.op = "union";
+            }
+            return compound;
+          }
+          const parsed = parsePathD(d);
+          if (!parsed) return null;
+          const off = inferRecenterOffset(node);
+          const anchors = off.tx || off.ty
+            ? parsed.anchors.map((a) => ({ x: a.x + off.tx, y: a.y + off.ty, hin: { ...a.hin }, hout: { ...a.hout } }))
+            : parsed.anchors;
+          return { id: uid(), type: "path", anchors: anchors, closed: parsed.closed, rotation: inferRotation(node), ...inferSkew(node), ...inferStyle(node) };
+        }
+        return null;
+      } catch (e) { return null; }
+    }
+    Array.from(root.children).forEach((node) => {
+      if (consumed.has(node)) return;
+      const parsed = parseOneShapeNode(node);
+      if (parsed) out.push(parsed); else skipped++;
+    });
+    return { shapes: out, skipped };
+  }
+
+  // ---------- markup output ----------
+  function styleAttrsStr(s) {
+    if (s.style === "filled") return 'fill="currentColor" stroke="none"';
+    if (s.style === "both") return 'fill="currentColor" stroke="currentColor" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="round" stroke-linejoin="round"';
+    return 'fill="none" stroke="currentColor" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="round" stroke-linejoin="round"';
+  }
+  function shapeMarkup(s) {
+    if (s.type === "rect") {
+      return '<rect x="' + fmt(s.x) + '" y="' + fmt(s.y) + '" width="' + fmt(s.w) + '" height="' + fmt(s.h) + '"' +
+        (s.rx ? ' rx="' + fmt(s.rx) + '"' : "") + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
+    }
+    if (s.type === "ellipse") {
+      return '<ellipse cx="' + fmt(s.cx) + '" cy="' + fmt(s.cy) + '" rx="' + fmt(s.rx) + '" ry="' + fmt(s.ry) + '" ' + styleAttrsStr(s) + transformAttr(s) + "/>";
+    }
+    if (s.type === "line") {
+      return '<line x1="' + fmt(s.x1) + '" y1="' + fmt(s.y1) + '" x2="' + fmt(s.x2) + '" y2="' + fmt(s.y2) +
+        '" stroke="currentColor" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="round"/>';
+    }
+    if (s.type === "path") {
+      return '<path d="' + pathD(s.anchors, s.closed) + '" ' + styleAttrsStr(s) + transformAttr(s) + "/>";
+    }
+    if (s.type === "compound") {
+      // Merge's union output stays a plain nonzero-fill path - a
+      // union's subpaths are DESIGNED to overlap (that's what makes a
+      // multi-part merge look seamless instead of hole-punched), and
+      // nonzero already resolves that correctly with no further help.
+      if (s.op === "union") {
+        return '<path d="' + s.d + '" fill-rule="nonzero"' + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
+      }
+      // Cut's output punches frontD's hole out of clipD (the back
+      // shape's own outline) via an SVG <mask> rather than folding both
+      // into one evenodd path. A mask composites back and front as two
+      // INDEPENDENT nonzero-resolved silhouettes - each painted exactly
+      // like it would on its own - so it's correct even when either one
+      // is itself a Merge/union compound with self-overlapping subpaths,
+      // which a single evenodd parity count over the concatenated `d`
+      // can't tell apart from "this is where front actually cuts back"
+      // (see subtractShapes for the full reasoning). clipPath (still
+      // built the same way as before) stays only for hitTargetMarkup/
+      // shapeOutlineMarkup, which just need the outer silhouette, not
+      // the hole itself.
+      if (s.clipD && s.frontD) {
+        const maskId = "cutmask-" + s.id;
+        const mask = '<mask id="' + maskId + '"><path d="' + s.clipD + '" fill="#fff" fill-rule="nonzero"/><path d="' + s.frontD + '" fill="#000" fill-rule="nonzero"/></mask>';
+        const clip = '<clipPath id="clip-' + s.id + '"><path d="' + s.clipD + '"/></clipPath>';
+        return mask + clip + '<path d="' + s.clipD + '" mask="url(#' + maskId + ')"' + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
+      }
+      // Fallback for a Cut result saved before frontD existed (older
+      // localStorage/imported projects) - same evenodd+clip-path
+      // approach this tool used previously, kept only so old data
+      // doesn't break rather than for any new cut.
+      const clip = s.clipD ? '<clipPath id="clip-' + s.id + '"><path d="' + s.clipD + '"/></clipPath>' : "";
+      const clipAttr = s.clipD ? ' clip-path="url(#clip-' + s.id + ')"' : "";
+      return clip + '<path d="' + s.d + '" fill-rule="evenodd"' + clipAttr + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
+    }
+    return "";
+  }
+  // A "knockout" shape (s.knockout) cuts a hole through every OTHER
+  // shape in the icon, live, non-destructively - unlike Cut, nothing
+  // ever merges, so every shape (knockout or not) stays independently
+  // editable. Implemented as one shared SVG <mask> covering the union
+  // of every knockout shape's own geometry (nonzero, so several
+  // overlapping knockout shapes combine into one cutter exactly like
+  // Merge's union does) applied over everything else - simpler and far
+  // more robust than tracking z-order-scoped masks per shape, and
+  // matches how this feature is actually used (marking negative space
+  // that should read as "missing" everywhere, not just from one
+  // specific shape backward). `normalMarkup` is whatever the caller
+  // already rendered for the non-knockout shapes; `allShapes` is only
+  // consulted for which ones are tagged knockout.
+  function applyKnockoutMask(normalMarkup, allShapes) {
+    const cutterD = allShapes.filter((s) => s.knockout).map(shapeToRawD).filter(Boolean).join(" ");
+    if (!cutterD) return normalMarkup;
+    const vb = project.viewBox;
+    const maskId = "knockout-" + uid();
+    return '<mask id="' + maskId + '" maskUnits="userSpaceOnUse" x="' + fmt(-vb.w) + '" y="' + fmt(-vb.h) + '" width="' + fmt(vb.w * 3) + '" height="' + fmt(vb.h * 3) + '">' +
+      '<rect x="' + fmt(-vb.w) + '" y="' + fmt(-vb.h) + '" width="' + fmt(vb.w * 3) + '" height="' + fmt(vb.h * 3) + '" fill="#fff"/>' +
+      '<path d="' + cutterD + '" fill="#000" fill-rule="nonzero"/></mask>' +
+      '<g mask="url(#' + maskId + ')">' + normalMarkup + "</g>";
+  }
+  function shapesMarkup(arr) {
+    const normal = arr.filter((s) => !s.knockout);
+    return applyKnockoutMask(normal.map(shapeMarkup).join("\n  "), arr);
+  }
+
+  function hitTargetMarkup(s) {
+    const common = 'class="hit-target" data-id="' + s.id + '"';
+    if (s.type === "rect") return '<rect x="' + fmt(s.x) + '" y="' + fmt(s.y) + '" width="' + fmt(s.w) + '" height="' + fmt(s.h) + '" ' + common + transformAttr(s) + "/>";
+    if (s.type === "ellipse") return '<ellipse cx="' + fmt(s.cx) + '" cy="' + fmt(s.cy) + '" rx="' + fmt(s.rx) + '" ry="' + fmt(s.ry) + '" ' + common + transformAttr(s) + "/>";
+    if (s.type === "line") return '<line x1="' + fmt(s.x1) + '" y1="' + fmt(s.y1) + '" x2="' + fmt(s.x2) + '" y2="' + fmt(s.y2) + '" ' + common + "/>";
+    if (s.type === "path") return '<path d="' + pathD(s.anchors, s.closed) + '" ' + common + transformAttr(s) + "/>";
+    if (s.type === "compound") {
+      const clipAttr = s.clipD ? ' clip-path="url(#clip-' + s.id + ')"' : "";
+      return '<path d="' + s.d + '" ' + common + clipAttr + transformAttr(s) + "/>";
+    }
+    return "";
+  }
+  // transformAttr(s) added to every branch here - was missing entirely,
+  // so multi-select/bool-outline boxes (like selection-outline before
+  // it) showed an unrotated, unskewed box for any transformed shape,
+  // not its true silhouette.
+  function shapeOutlineMarkup(s, cls) {
+    if (s.type === "rect") return '<rect x="' + fmt(s.x) + '" y="' + fmt(s.y) + '" width="' + fmt(s.w) + '" height="' + fmt(s.h) + '" rx="' + fmt(s.rx || 0) + '" class="' + cls + '"' + transformAttr(s) + "/>";
+    if (s.type === "ellipse") return '<ellipse cx="' + fmt(s.cx) + '" cy="' + fmt(s.cy) + '" rx="' + fmt(s.rx) + '" ry="' + fmt(s.ry) + '" class="' + cls + '"' + transformAttr(s) + "/>";
+    if (s.type === "line") return '<line x1="' + fmt(s.x1) + '" y1="' + fmt(s.y1) + '" x2="' + fmt(s.x2) + '" y2="' + fmt(s.y2) + '" class="' + cls + '"/>';
+    if (s.type === "path") return '<path d="' + pathD(s.anchors, s.closed) + '" class="' + cls + '"' + transformAttr(s) + "/>";
+    if (s.type === "compound") {
+      const clipAttr = s.clipD ? ' clip-path="url(#clip-' + s.id + ')"' : "";
+      return '<path d="' + s.d + '" class="' + cls + '"' + clipAttr + transformAttr(s) + "/>";
+    }
+    return "";
+  }
+  // Handles are sized in *screen* pixels, not viewBox units — if they were
+  // sized in viewBox units they'd scale up right along with the shape when
+  // you zoom in, so zooming in would never actually create more room around
+  // a small shape to grab its body instead of a handle. Dividing by zoom
+  // keeps them a small constant size on screen, so zooming in genuinely
+  // spreads the handles apart relative to the shape.
+  function handleHitR() { return clamp(7 / zoom, 0.15, 1.1); }
+  function handleVisR() { return clamp(4.5 / zoom, 0.1, 0.7); }
+  function handleMarkup(x, y, name, cls) {
+    // The invisible circle carries the actual pointer hit-test; the small
+    // visible dot on top is purely decorative (pointer-events:none) so
+    // clicks pass through to it.
+    return '<circle cx="' + fmt(x) + '" cy="' + fmt(y) + '" r="' + fmt(handleHitR()) + '" class="handle-hit" data-handle="' + name + '"/>' +
+      '<circle cx="' + fmt(x) + '" cy="' + fmt(y) + '" r="' + fmt(handleVisR()) + '" class="' + (cls || "handle-box") + '"/>';
+  }
+
+  // ---------- bounding box helpers (rect + ellipse + compound share resize logic) ----------
+  function bboxOf(s) {
+    if (s.type === "rect") return { x: s.x, y: s.y, w: s.w, h: s.h };
+    if (s.type === "compound") return bboxFromD(compoundVisualD(s));
+    return { x: s.cx - s.rx, y: s.cy - s.ry, w: s.rx * 2, h: s.ry * 2 };
+  }
+  function setBbox(s, b) {
+    if (s.type === "rect") { s.x = b.x; s.y = b.y; s.w = b.w; s.h = b.h; }
+    else if (s.type === "compound") {
+      const old = bboxFromD(compoundVisualD(s));
+      s.d = scalePathD(s.d, old, b);
+      if (s.clipD) s.clipD = scalePathD(s.clipD, old, b);
+      if (s.frontD) s.frontD = scalePathD(s.frontD, old, b);
+    }
+    else { s.rx = b.w / 2; s.ry = b.h / 2; s.cx = b.x + s.rx; s.cy = b.y + s.ry; }
+  }
+  // Remaps every coordinate in an M/L/C/A/Z path from oldBbox into
+  // newBbox - what lets a Cut/Merge "compound" shape (a raw d string
+  // with no x/y/w/h fields of its own) be resized via the same 8-handle
+  // drag as rect/ellipse, through bboxOf/setBbox. Cut/Merge output had
+  // no resize handles at all before this - only move and rotate worked.
+  function scalePathD(d, oldBbox, newBbox) {
+    const sx = oldBbox.w > 0.0001 ? newBbox.w / oldBbox.w : 1;
+    const sy = oldBbox.h > 0.0001 ? newBbox.h / oldBbox.h : 1;
+    const remap = (x, y) => ({ x: newBbox.x + (x - oldBbox.x) * sx, y: newBbox.y + (y - oldBbox.y) * sy });
+    const tokens = d.match(/[MLCAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    if (!tokens) return d;
+    let i = 0;
+    const nextNum = () => parseFloat(tokens[i++]);
+    const out = [];
+    while (i < tokens.length) {
+      const cmd = tokens[i++];
+      if (cmd === "M" || cmd === "L") {
+        const p = remap(nextNum(), nextNum());
+        out.push(cmd, fmt(p.x), fmt(p.y));
+      } else if (cmd === "C") {
+        const c1 = remap(nextNum(), nextNum()), c2 = remap(nextNum(), nextNum()), e = remap(nextNum(), nextNum());
+        out.push(cmd, fmt(c1.x), fmt(c1.y), fmt(c2.x), fmt(c2.y), fmt(e.x), fmt(e.y));
+      } else if (cmd === "A") {
+        const rx = nextNum(), ry = nextNum(), xrot = nextNum(), large = nextNum(), sweep = nextNum();
+        const e = remap(nextNum(), nextNum());
+        // Exact for an axis-aligned arc (xrot 0 - every rounded-rect
+        // corner this tool generates uses that) since its radii just
+        // scale along with each axis; a rotated arc's radii don't scale
+        // this simply in general, so those get an approximation
+        // (averaged scale factor) rather than the full rotated-ellipse
+        // math - the arc's endpoint is still exact either way.
+        const rScale = xrot === 0 ? null : (Math.abs(sx) + Math.abs(sy)) / 2;
+        const rxOut = Math.abs(xrot === 0 ? rx * sx : rx * rScale);
+        const ryOut = Math.abs(xrot === 0 ? ry * sy : ry * rScale);
+        out.push(cmd, fmt(rxOut), fmt(ryOut), xrot, large, sweep, fmt(e.x), fmt(e.y));
+      } else if (cmd === "Z") {
+        out.push(cmd);
+      } else return d;
+    }
+    return out.join(" ");
+  }
+  const HANDLE_DEFS = [
+    { name: "nw", gx: 0, gy: 0 }, { name: "n", gx: 0.5, gy: 0 }, { name: "ne", gx: 1, gy: 0 },
+    { name: "w", gx: 0, gy: 0.5 }, { name: "e", gx: 1, gy: 0.5 },
+    { name: "sw", gx: 0, gy: 1 }, { name: "s", gx: 0.5, gy: 1 }, { name: "se", gx: 1, gy: 1 }
+  ];
+  // The 8 standard corner/edge resize handles - distinct from "rotate",
+  // "bend", "p1"/"p2", and path's dynamic "anchor-N"/"hin-N"/"hout-N",
+  // none of which participate in group-resize.
+  const RESIZE_HANDLE_NAMES = new Set(HANDLE_DEFS.map((hd) => hd.name));
+  // Union of several shapeBbox() results - the shared box a whole group
+  // resizes against.
+  function unionBbox(boxes) {
+    if (!boxes.length) return { x: 0, y: 0, w: 0, h: 0 };
+    const minX = Math.min.apply(null, boxes.map((b) => b.x));
+    const minY = Math.min.apply(null, boxes.map((b) => b.y));
+    const maxX = Math.max.apply(null, boxes.map((b) => b.x + b.w));
+    const maxY = Math.max.apply(null, boxes.map((b) => b.y + b.h));
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+  // Remaps one group member's own geometry from the group's oldBbox
+  // into its newBbox - the group-resize counterpart to setBbox, which
+  // only ever remaps a single rect/ellipse/compound shape. A member
+  // with its own rotation is left untouched (rotation and non-uniform
+  // scale don't commute, so resizing it exactly would need it to
+  // shear - out of scope, same class of limitation as scalePathD's
+  // rotated-arc handling; everything else in the group still resizes).
+  function scaleShapeToBbox(s, orig, oldBbox, newBbox) {
+    if (orig.rotation) return;
+    const sx = oldBbox.w > 0.0001 ? newBbox.w / oldBbox.w : 1;
+    const sy = oldBbox.h > 0.0001 ? newBbox.h / oldBbox.h : 1;
+    const remap = (x, y) => ({ x: newBbox.x + (x - oldBbox.x) * sx, y: newBbox.y + (y - oldBbox.y) * sy });
+    if (s.type === "rect") {
+      const p1 = remap(orig.x, orig.y), p2 = remap(orig.x + orig.w, orig.y + orig.h);
+      s.x = Math.min(p1.x, p2.x); s.y = Math.min(p1.y, p2.y); s.w = Math.abs(p2.x - p1.x); s.h = Math.abs(p2.y - p1.y);
+    } else if (s.type === "ellipse") {
+      const c = remap(orig.cx, orig.cy);
+      s.cx = c.x; s.cy = c.y; s.rx = Math.abs(orig.rx * sx); s.ry = Math.abs(orig.ry * sy);
+    } else if (s.type === "line") {
+      const p1 = remap(orig.x1, orig.y1), p2 = remap(orig.x2, orig.y2);
+      s.x1 = p1.x; s.y1 = p1.y; s.x2 = p2.x; s.y2 = p2.y;
+    } else if (s.type === "path") {
+      s.anchors = orig.anchors.map((a) => {
+        const p = remap(a.x, a.y);
+        return { x: p.x, y: p.y, hin: { dx: a.hin.dx * sx, dy: a.hin.dy * sy }, hout: { dx: a.hout.dx * sx, dy: a.hout.dy * sy } };
+      });
+    } else if (s.type === "compound") {
+      s.d = scalePathD(orig.d, oldBbox, newBbox);
+      if (orig.clipD) s.clipD = scalePathD(orig.clipD, oldBbox, newBbox);
+      if (orig.frontD) s.frontD = scalePathD(orig.frontD, oldBbox, newBbox);
+    }
+  }
+  function resizeBbox(orig, handleName, dx, dy) {
+    let x = orig.x, y = orig.y, x2 = orig.x + orig.w, y2 = orig.y + orig.h;
+    if (handleName.indexOf("w") >= 0) x += dx;
+    if (handleName.indexOf("e") >= 0) x2 += dx;
+    if (handleName.indexOf("n") >= 0) y += dy;
+    if (handleName.indexOf("s") >= 0) y2 += dy;
+    return { x: Math.min(x, x2), y: Math.min(y, y2), w: Math.abs(x2 - x), h: Math.abs(y2 - y) };
+  }
+  function moveShape(orig, s, dx, dy) {
+    if (s.type === "rect") { s.x = orig.x + dx; s.y = orig.y + dy; }
+    else if (s.type === "ellipse") { s.cx = orig.cx + dx; s.cy = orig.cy + dy; }
+    else if (s.type === "line") { s.x1 = orig.x1 + dx; s.y1 = orig.y1 + dy; s.x2 = orig.x2 + dx; s.y2 = orig.y2 + dy; }
+    else if (s.type === "path") {
+      s.anchors = orig.anchors.map((a) => ({ x: a.x + dx, y: a.y + dy, hin: { ...a.hin }, hout: { ...a.hout } }));
+    } else if (s.type === "compound") {
+      s.d = translatePathD(orig.d, dx, dy);
+      if (orig.clipD) s.clipD = translatePathD(orig.clipD, dx, dy);
+      if (orig.frontD) s.frontD = translatePathD(orig.frontD, dx, dy);
+    }
+  }
+
+  // ---------- project state ----------
+  function createDefaultProject() {
+    const icons = {};
+    ICON_SEED.forEach(([key, name]) => {
+      let shapes = [];
+      const seedMarkup = ICON_SEED_MARKUP[key];
+      if (seedMarkup) {
+        try { shapes = parseMarkupToShapes(seedMarkup).shapes; } catch (e) { shapes = []; }
+      }
+      icons[key] = { name, shapes };
+    });
+    return { viewBox: { w: 24, h: 24 }, icons, activeKey: ICON_SEED[0][0] };
+  }
+  function loadProject() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw);
+      if (!p.icons || !p.activeKey || !p.viewBox) return null;
+      return p;
+    } catch (e) { return null; }
+  }
+  function saveProject() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(project)); } catch (e) { /* storage full or unavailable */ }
+  }
+
+  let project = loadProject() || createDefaultProject();
+  if (!project.icons[project.activeKey]) project.activeKey = Object.keys(project.icons)[0];
+
+  let history = [];
+  let historyIndex = -1;
+  function pushHistory() {
+    history = history.slice(0, historyIndex + 1);
+    history.push(JSON.stringify(project));
+    if (history.length > 120) history.shift();
+    historyIndex = history.length - 1;
+  }
+  function undo() {
+    if (historyIndex <= 0) return;
+    historyIndex--;
+    project = JSON.parse(history[historyIndex]);
+    selectedId = null;
+    boolSet = [];
+    multiSelect = [];
+    saveProject(); render();
+  }
+  function redo() {
+    if (historyIndex >= history.length - 1) return;
+    historyIndex++;
+    project = JSON.parse(history[historyIndex]);
+    selectedId = null;
+    boolSet = [];
+    multiSelect = [];
+    saveProject(); render();
+  }
+  pushHistory();
+
+  function activeIcon() { return project.icons[project.activeKey]; }
+  function shapes() { return activeIcon().shapes; }
+  function getShapeById(id) { return shapes().find((s) => s.id === id); }
+
+  // ---------- interaction state (not persisted) ----------
+  let tool = "select";
+  let selectedId = null;
+  let dragMode = null;
+  let dragStart = null;
+  let dragHandle = null;
+  let dragOrigShape = null;
+  // Snapshots of any OTHER shapes sharing the dragged shape's groupId
+  // (see mergeSelected/ungroupShape) - only ever populated during a
+  // "move" drag, so the whole group translates together and Escape can
+  // restore every member, not just the one actually grabbed.
+  let dragGroupOrig = [];
+  // Only set during a "handle" (8-point resize) drag started on an
+  // unrotated grouped shape - { oldBbox, members: [{ id, orig }] }. See
+  // scaleShapeToBbox for what actually remaps each member.
+  let dragGroupResize = null;
+  // Active alignment-guide lines to draw this frame, set by
+  // computeAlignSnap during a "move" drag - [{ axis: "v"|"h", pos, from, to }].
+  // Render-only; cleared whenever a move drag isn't in progress.
+  let alignGuides = null;
+  let draftShape = null;
+  let penDraft = null;
+  let penPendingDrag = null;
+  let shiftHeld = false;
+  let boolSet = []; // up to 2 shape ids picked via shift-click, for the boolean cut op
+  let multiSelect = []; // shape ids picked in the Multi tool, for bulk stroke-width/delete
+  let marqueeRect = null;
+  let marqueeMoved = false;
+  let freehandPoints = null; // raw {x,y} samples while drawing with the Freehand tool
+  let zoom = 18;
+  let snapEnabled = true;
+  let gridStep = 0.5;
+  let showGrid = true;
+  let gridMode = "square"; // "square" | "isometric" - which grid is drawn and snapped to
+  let defaultStrokeWidth = 1.6;
+  let freehandSmoothing = 50; // 0-100 slider - drives both smoothPointTrail's blur passes and rdpSimplify's tolerance, see the freehand release handler
+
+  const svgRoot = document.getElementById("artboard");
+
+  function toLogical(evt) {
+    const pt = svgRoot.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    const ctm = svgRoot.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
+  }
+  // ---------- isometric grid: a classic 3-axis (30/90/150 degree) drawing
+  // grid. Points snap to the nearest intersection of a triangular lattice
+  // built from two axes at +/-30 degrees from horizontal, edge length
+  // ISO_STEP - see isoSnapPt for the derivation (solving i*u + j*v = p for
+  // the lattice's integer basis coordinates, then rounding). Vertical lines
+  // fall out of the same lattice for free (the "u - v" direction is
+  // perfectly vertical), so a 90-degree family reuses the same spacing. ----------
+  const ISO_ANGLE = Math.PI / 6; // 30 degrees
+  const ISO_STEP = 1;
+  function isoSnapPt(p) {
+    const c = Math.cos(ISO_ANGLE), s = Math.sin(ISO_ANGLE);
+    const iRaw = (p.x / (ISO_STEP * c) + p.y / (ISO_STEP * s)) / 2;
+    const jRaw = (p.x / (ISO_STEP * c) - p.y / (ISO_STEP * s)) / 2;
+    const i = Math.round(iRaw), j = Math.round(jRaw);
+    return { x: ISO_STEP * c * (i + j), y: ISO_STEP * s * (i - j) };
+  }
+  function snapPt(p) {
+    if (!snapEnabled) return p;
+    if (gridMode === "isometric") return isoSnapPt(p);
+    return { x: Math.round(p.x / gridStep) * gridStep, y: Math.round(p.y / gridStep) * gridStep };
+  }
+  // Alignment guides (a.k.a. "smart guides") - separate from the grid
+  // snap above, this snaps a shape being dragged to line up with other
+  // shapes' edges/centers (and the canvas's own edges/center), the way
+  // Figma/PowerPoint/Illustrator's guides work. testBbox is where the
+  // dragged shape's bbox would land at the RAW (pre-any-snap) drag
+  // delta; excludeIds skips the shape itself and any siblings moving
+  // with it in the same group. Returns the (dx,dy) nudge that makes
+  // whichever edge/center is closest land exactly on its match, plus
+  // the guide line(s) to draw for it - empty/zero when nothing's close
+  // enough to snap to.
+  function computeAlignSnap(testBbox, excludeIds) {
+    const threshold = clamp(6 / zoom, 0.15, 1.2);
+    const vb = project.viewBox;
+    const xCands = [{ pos: 0, from: 0, to: vb.h }, { pos: vb.w / 2, from: 0, to: vb.h }, { pos: vb.w, from: 0, to: vb.h }];
+    const yCands = [{ pos: 0, from: 0, to: vb.w }, { pos: vb.h / 2, from: 0, to: vb.w }, { pos: vb.h, from: 0, to: vb.w }];
+    shapes().forEach((s) => {
+      if (excludeIds.has(s.id)) return;
+      const b = shapeBbox(s);
+      [b.x, b.x + b.w / 2, b.x + b.w].forEach((x) => xCands.push({ pos: x, from: b.y, to: b.y + b.h }));
+      [b.y, b.y + b.h / 2, b.y + b.h].forEach((y) => yCands.push({ pos: y, from: b.x, to: b.x + b.w }));
+    });
+    let bestX = null, bestY = null;
+    [testBbox.x, testBbox.x + testBbox.w / 2, testBbox.x + testBbox.w].forEach((sx) => {
+      xCands.forEach((c) => {
+        const d = Math.abs(sx - c.pos);
+        if (d <= threshold && (!bestX || d < bestX.dist)) bestX = { dist: d, delta: c.pos - sx, guide: c };
+      });
+    });
+    [testBbox.y, testBbox.y + testBbox.h / 2, testBbox.y + testBbox.h].forEach((sy) => {
+      yCands.forEach((c) => {
+        const d = Math.abs(sy - c.pos);
+        if (d <= threshold && (!bestY || d < bestY.dist)) bestY = { dist: d, delta: c.pos - sy, guide: c };
+      });
+    });
+    const guides = [];
+    if (bestX) guides.push({ axis: "v", pos: bestX.guide.pos, from: Math.min(bestX.guide.from, testBbox.y), to: Math.max(bestX.guide.to, testBbox.y + testBbox.h) });
+    if (bestY) guides.push({ axis: "h", pos: bestY.guide.pos, from: Math.min(bestY.guide.from, testBbox.x), to: Math.max(bestY.guide.to, testBbox.x + testBbox.w) });
+    return { dx: bestX ? bestX.delta : 0, dy: bestY ? bestY.delta : 0, guides };
+  }
+
+  // ---------- pointer interaction ----------
+  function onPointerDown(evt) {
+    if (evt.button !== 0) return;
+    if (tool === "pan") {
+      // touch-action: pan-x pan-y (see #artboard.pan-active) only makes
+      // the browser hand real TOUCH-drag gestures their native scroll
+      // physics - it does nothing for mouse/pen input, which has no
+      // "drag to scroll" behavior built in at all. So a real touch drag
+      // already just works via CSS alone, but mouse/pen needs this
+      // manual scrollLeft/scrollTop drive instead - without it, Pan was
+      // a no-op for anyone not on an actual touchscreen.
+      if (evt.pointerType === "touch") return;
+      dragMode = "pan";
+      dragStart = { x: evt.clientX, y: evt.clientY };
+      evt.preventDefault();
+      return;
+    }
+    const p = toLogical(evt);
+    const target = evt.target;
+    const handleName = target.getAttribute && target.getAttribute("data-handle");
+    const shapeId = target.getAttribute && target.getAttribute("data-id");
+
+    if (tool === "select") {
+      if (handleName && selectedId) {
+        const targetShape = getShapeById(selectedId);
+        if (handleName === "rotate") {
+          dragMode = "rotate"; dragStart = p;
+          dragOrigShape = JSON.parse(JSON.stringify(targetShape));
+          evt.preventDefault(); return;
+        }
+        if (handleName === "bend") {
+          dragMode = "bendline"; dragStart = p;
+          dragOrigShape = JSON.parse(JSON.stringify(targetShape));
+          evt.preventDefault(); return;
+        }
+        dragMode = "handle"; dragHandle = handleName; dragStart = p;
+        dragOrigShape = JSON.parse(JSON.stringify(targetShape));
+        // Only an UNROTATED grouped shape can initiate a group-resize -
+        // its own handles are drawn un-rotated, so the raw mouse delta
+        // already matches the group's (also unrotated/global) bbox
+        // space with no correction needed. A rotated shape's handles are
+        // drawn in its own rotated frame instead (see the delta
+        // un-rotation right below, for the single-shape path), which
+        // would need a different, incompatible correction - so it just
+        // falls back to today's single-shape-only resize.
+        if (targetShape.groupId && !targetShape.rotation && RESIZE_HANDLE_NAMES.has(handleName)) {
+          const members = groupMembers(targetShape.groupId);
+          dragGroupResize = {
+            oldBbox: unionBbox(members.map(shapeBbox)),
+            members: members.map((m) => ({ id: m.id, orig: JSON.parse(JSON.stringify(m)) })),
+          };
+        } else {
+          dragGroupResize = null;
+        }
+        evt.preventDefault(); return;
+      }
+      if (shapeId && evt.shiftKey) {
+        const idx = boolSet.indexOf(shapeId);
+        if (idx >= 0) boolSet.splice(idx, 1);
+        else { boolSet.push(shapeId); if (boolSet.length > 2) boolSet.shift(); }
+        render();
+        evt.preventDefault(); return;
+      }
+      if (shapeId) {
+        selectedId = shapeId;
+        dragMode = "move"; dragStart = p;
+        const selShape = getShapeById(selectedId);
+        dragOrigShape = JSON.parse(JSON.stringify(selShape));
+        dragGroupOrig = selShape.groupId
+          ? groupMembers(selShape.groupId).filter((sh) => sh.id !== selShape.id).map((sh) => ({ id: sh.id, orig: JSON.parse(JSON.stringify(sh)) }))
+          : [];
+        render();
+        evt.preventDefault(); return;
+      }
+      selectedId = null; render(); return;
+    }
+
+    if (tool === "rect" || tool === "ellipse" || tool === "line") {
+      const sp = snapPt(p);
+      dragMode = "draw"; dragStart = sp;
+      const base = { id: uid(), style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0 };
+      if (tool === "rect") draftShape = { ...base, type: "rect", x: sp.x, y: sp.y, w: 0, h: 0, rx: 0 };
+      if (tool === "ellipse") draftShape = { ...base, type: "ellipse", cx: sp.x, cy: sp.y, rx: 0, ry: 0 };
+      if (tool === "line") draftShape = { ...base, type: "line", x1: sp.x, y1: sp.y, x2: sp.x, y2: sp.y };
+      render();
+      evt.preventDefault(); return;
+    }
+
+    if (tool === "curve") {
+      const sp = snapPt(p);
+      if (!penDraft) {
+        penDraft = { anchors: [{ x: sp.x, y: sp.y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } }], closed: false };
+        penPendingDrag = { anchorIndex: 0 };
+      } else {
+        const first = penDraft.anchors[0];
+        const distToFirst = Math.hypot(p.x - first.x, p.y - first.y);
+        if (penDraft.anchors.length > 2 && distToFirst < 0.6) {
+          penDraft.closed = true;
+          commitPenDraft();
+          evt.preventDefault(); return;
+        }
+        penDraft.anchors.push({ x: sp.x, y: sp.y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } });
+        penPendingDrag = { anchorIndex: penDraft.anchors.length - 1 };
+      }
+      render();
+      evt.preventDefault(); return;
+    }
+
+    if (tool === "cut") {
+      if (shapeId) {
+        const idx = boolSet.indexOf(shapeId);
+        if (idx >= 0) boolSet.splice(idx, 1);
+        else { boolSet.push(shapeId); if (boolSet.length > 2) boolSet.shift(); }
+        render();
+        evt.preventDefault(); return;
+      }
+      boolSet = [];
+      render();
+      evt.preventDefault(); return;
+    }
+
+    if (tool === "multi") {
+      if (shapeId) {
+        const idx = multiSelect.indexOf(shapeId);
+        if (idx >= 0) multiSelect.splice(idx, 1); else multiSelect.push(shapeId);
+        render();
+        evt.preventDefault(); return;
+      }
+      dragMode = "marquee";
+      dragStart = p;
+      marqueeRect = { x: p.x, y: p.y, w: 0, h: 0 };
+      marqueeMoved = false;
+      render();
+      evt.preventDefault(); return;
+    }
+
+    if (tool === "freehand") {
+      freehandPoints = [{ x: p.x, y: p.y }];
+      dragMode = "freehand";
+      render();
+      evt.preventDefault(); return;
+    }
+  }
+
+  function onPointerMove(evt) {
+    if (dragMode === "pan") {
+      // Raw screen pixels, 1:1 with the mouse - matches how the native
+      // touch-drag scroll (the touch-action CSS path) already feels.
+      const viewport = document.getElementById("canvasViewport");
+      viewport.scrollLeft -= evt.clientX - dragStart.x;
+      viewport.scrollTop -= evt.clientY - dragStart.y;
+      dragStart = { x: evt.clientX, y: evt.clientY };
+      return;
+    }
+    const p = toLogical(evt);
+
+    if (dragMode === "draw" && draftShape) {
+      const sp = snapPt(p);
+      if (draftShape.type === "rect") {
+        let w = sp.x - dragStart.x, h = sp.y - dragStart.y;
+        if (shiftHeld) { const m = Math.max(Math.abs(w), Math.abs(h)); w = (w < 0 ? -1 : 1) * m; h = (h < 0 ? -1 : 1) * m; }
+        draftShape.x = w < 0 ? dragStart.x + w : dragStart.x;
+        draftShape.y = h < 0 ? dragStart.y + h : dragStart.y;
+        draftShape.w = Math.abs(w); draftShape.h = Math.abs(h);
+      } else if (draftShape.type === "ellipse") {
+        let w = sp.x - dragStart.x, h = sp.y - dragStart.y;
+        if (shiftHeld) { const m = Math.max(Math.abs(w), Math.abs(h)); w = (w < 0 ? -1 : 1) * m; h = (h < 0 ? -1 : 1) * m; }
+        const x = w < 0 ? dragStart.x + w : dragStart.x;
+        const y = h < 0 ? dragStart.y + h : dragStart.y;
+        draftShape.rx = Math.abs(w) / 2; draftShape.ry = Math.abs(h) / 2;
+        draftShape.cx = x + draftShape.rx; draftShape.cy = y + draftShape.ry;
+      } else if (draftShape.type === "line") {
+        let x2 = sp.x, y2 = sp.y;
+        if (shiftHeld) {
+          const dx = x2 - dragStart.x, dy = y2 - dragStart.y;
+          const ang = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12);
+          const len = Math.hypot(dx, dy);
+          x2 = dragStart.x + Math.cos(ang) * len;
+          y2 = dragStart.y + Math.sin(ang) * len;
+        }
+        draftShape.x2 = x2; draftShape.y2 = y2;
+      }
+      render(); return;
+    }
+
+    if (dragMode === "move" && dragOrigShape) {
+      const dx0 = p.x - dragStart.x, dy0 = p.y - dragStart.y;
+      let dx = snapEnabled ? Math.round(dx0 / gridStep) * gridStep : dx0;
+      let dy = snapEnabled ? Math.round(dy0 / gridStep) * gridStep : dy0;
+      alignGuides = null;
+      // Alignment guides take priority over grid-snap per axis, since
+      // lining up with an actual shape/canvas edge is more deliberate
+      // than a generic grid point - only the axis that actually found a
+      // close match gets overridden, so e.g. x can snap to a neighbor's
+      // edge while y still falls back to the grid.
+      if (snapEnabled) {
+        const origBbox = shapeBbox(dragOrigShape);
+        const testBbox = { x: origBbox.x + dx0, y: origBbox.y + dy0, w: origBbox.w, h: origBbox.h };
+        const excludeIds = new Set([selectedId].concat(dragGroupOrig.map((entry) => entry.id)));
+        const snap = computeAlignSnap(testBbox, excludeIds);
+        if (snap.guides.some((g) => g.axis === "v")) dx = dx0 + snap.dx;
+        if (snap.guides.some((g) => g.axis === "h")) dy = dy0 + snap.dy;
+        if (snap.guides.length) alignGuides = snap.guides;
+      }
+      moveShape(dragOrigShape, getShapeById(selectedId), dx, dy);
+      dragGroupOrig.forEach((entry) => {
+        const sib = getShapeById(entry.id);
+        if (sib) moveShape(entry.orig, sib, dx, dy);
+      });
+      render(); return;
+    }
+
+    if (dragMode === "handle" && dragOrigShape && dragGroupResize) {
+      // Group-resize: the group's combined bbox is already global/
+      // unrotated (shapeBbox), so - unlike the single-shape path right
+      // below - the raw mouse delta needs no per-shape rotation
+      // correction here.
+      const dx0 = p.x - dragStart.x, dy0 = p.y - dragStart.y;
+      let newBbox = resizeBbox(dragGroupResize.oldBbox, dragHandle, dx0, dy0);
+      if (snapEnabled) {
+        const x2 = newBbox.x + newBbox.w, y2 = newBbox.y + newBbox.h;
+        const sx = Math.round(newBbox.x / gridStep) * gridStep, sy = Math.round(newBbox.y / gridStep) * gridStep;
+        const sx2 = Math.round(x2 / gridStep) * gridStep, sy2 = Math.round(y2 / gridStep) * gridStep;
+        newBbox = { x: sx, y: sy, w: Math.max(0.1, sx2 - sx), h: Math.max(0.1, sy2 - sy) };
+      }
+      dragGroupResize.members.forEach((m) => {
+        const sh = getShapeById(m.id);
+        if (sh) scaleShapeToBbox(sh, m.orig, dragGroupResize.oldBbox, newBbox);
+      });
+      render(); return;
+    }
+    if (dragMode === "handle" && dragOrigShape) {
+      let dx = p.x - dragStart.x, dy = p.y - dragStart.y;
+      if (dragOrigShape.rotation) {
+        // Handles are drawn (and dragged on screen) in the shape's rotated
+        // frame, but resize math works in its local/unrotated frame — so
+        // un-rotate the drag delta around the shape's original center
+        // before handing it to applyHandleDrag.
+        const c = shapeCenter(dragOrigShape);
+        const pLocal = rotatePoint(p, c, -dragOrigShape.rotation);
+        const startLocal = rotatePoint(dragStart, c, -dragOrigShape.rotation);
+        dx = pLocal.x - startLocal.x; dy = pLocal.y - startLocal.y;
+      }
+      applyHandleDrag(getShapeById(selectedId), dragOrigShape, dragHandle, dx, dy);
+      render(); return;
+    }
+
+    if (dragMode === "rotate" && dragOrigShape) {
+      const s = getShapeById(selectedId);
+      const c = shapeCenter(dragOrigShape);
+      let angle = (Math.atan2(p.y - c.y, p.x - c.x) * 180) / Math.PI + 90;
+      if (shiftHeld) angle = Math.round(angle / 15) * 15;
+      s.rotation = ((angle % 360) + 360) % 360;
+      render(); return;
+    }
+
+    if (dragMode === "bendline" && dragOrigShape) {
+      const s = getShapeById(selectedId);
+      const S = { x: dragOrigShape.x1, y: dragOrigShape.y1 };
+      const E = { x: dragOrigShape.x2, y: dragOrigShape.y2 };
+      const P = snapPt(p);
+      // Quadratic-through-point at t=0.5, elevated to an equivalent cubic —
+      // bows the straight line through wherever the handle gets dragged to.
+      const Q = { x: 2 * P.x - 0.5 * (S.x + E.x), y: 2 * P.y - 0.5 * (S.y + E.y) };
+      const c1 = { x: S.x + (2 / 3) * (Q.x - S.x), y: S.y + (2 / 3) * (Q.y - S.y) };
+      const c2 = { x: E.x + (2 / 3) * (Q.x - E.x), y: E.y + (2 / 3) * (Q.y - E.y) };
+      s.type = "path";
+      s.closed = false;
+      s.rotation = 0;
+      s.anchors = [
+        { x: S.x, y: S.y, hin: { dx: 0, dy: 0 }, hout: { dx: c1.x - S.x, dy: c1.y - S.y } },
+        { x: E.x, y: E.y, hin: { dx: c2.x - E.x, dy: c2.y - E.y }, hout: { dx: 0, dy: 0 } }
+      ];
+      render(); return;
+    }
+
+    if (tool === "curve" && penDraft && penPendingDrag) {
+      const idx = penPendingDrag.anchorIndex;
+      const a = penDraft.anchors[idx];
+      const dx = p.x - a.x, dy = p.y - a.y;
+      a.hout = { dx, dy };
+      a.hin = { dx: -dx, dy: -dy };
+      render(); return;
+    }
+
+    if (dragMode === "marquee") {
+      const x = Math.min(p.x, dragStart.x), y = Math.min(p.y, dragStart.y);
+      const w = Math.abs(p.x - dragStart.x), h = Math.abs(p.y - dragStart.y);
+      marqueeRect = { x, y, w, h };
+      if (w > 0.3 || h > 0.3) marqueeMoved = true;
+      render(); return;
+    }
+
+    if (dragMode === "freehand" && freehandPoints) {
+      const last = freehandPoints[freehandPoints.length - 1];
+      if (Math.hypot(p.x - last.x, p.y - last.y) > 0.12) freehandPoints.push({ x: p.x, y: p.y });
+      render(); return;
+    }
+  }
+
+  function onPointerUp() {
+    if (dragMode === "pan") { dragMode = null; return; }
+    if (dragMode === "draw" && draftShape) {
+      const tooSmall =
+        (draftShape.type === "rect" && draftShape.w < 0.3 && draftShape.h < 0.3) ||
+        (draftShape.type === "ellipse" && draftShape.rx < 0.15 && draftShape.ry < 0.15) ||
+        (draftShape.type === "line" && Math.hypot(draftShape.x2 - draftShape.x1, draftShape.y2 - draftShape.y1) < 0.3);
+      if (!tooSmall) {
+        shapes().push(draftShape);
+        selectedId = draftShape.id;
+        pushHistory(); saveProject();
+      }
+      draftShape = null; dragMode = null;
+      render(); return;
+    }
+    if (dragMode === "move" || dragMode === "handle" || dragMode === "rotate" || dragMode === "bendline") {
+      dragMode = null; dragOrigShape = null; dragGroupOrig = []; dragGroupResize = null; alignGuides = null;
+      pushHistory(); saveProject();
+      render(); return;
+    }
+    if (dragMode === "marquee") {
+      if (marqueeMoved) {
+        const mr = marqueeRect;
+        shapes().forEach((s) => {
+          if (bboxIntersects(shapeBbox(s), mr) && multiSelect.indexOf(s.id) < 0) multiSelect.push(s.id);
+        });
+      } else {
+        multiSelect = [];
+      }
+      dragMode = null; marqueeRect = null; marqueeMoved = false;
+      render(); return;
+    }
+    if (dragMode === "freehand" && freehandPoints) {
+      if (freehandPoints.length >= 2) {
+        const simplified = simplifyPointTrail(freehandPoints, zoom);
+        const first = simplified[0], last = simplified[simplified.length - 1];
+        const closeTolerance = clamp(8 / zoom, 0.4, 2);
+        const closed = simplified.length > 3 && Math.hypot(last.x - first.x, last.y - first.y) < closeTolerance;
+        const ptsForAnchors = closed ? simplified.slice(0, -1) : simplified;
+        const anchors = pointsToSmoothAnchors(ptsForAnchors, closed);
+        if (anchors.length >= 2) {
+          const shape = { id: uid(), type: "path", style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, closed, anchors };
+          shapes().push(shape);
+          selectedId = shape.id;
+          pushHistory(); saveProject();
+        }
+      }
+      freehandPoints = null; dragMode = null;
+      render(); return;
+    }
+    if (tool === "curve") {
+      penPendingDrag = null;
+    }
+  }
+
+  function applyHandleDrag(s, orig, handle, dx, dy) {
+    if (handle.indexOf("anchor-") === 0) {
+      const i = parseInt(handle.split("-")[1], 10);
+      const p = snapPt({ x: orig.anchors[i].x + dx, y: orig.anchors[i].y + dy });
+      s.anchors[i].x = p.x; s.anchors[i].y = p.y;
+      return;
+    }
+    if (handle.indexOf("hin-") === 0 || handle.indexOf("hout-") === 0) {
+      const parts = handle.split("-");
+      const kind = parts[0], i = parseInt(parts[1], 10);
+      const origA = orig.anchors[i];
+      s.anchors[i][kind] = { dx: origA[kind].dx + dx, dy: origA[kind].dy + dy };
+      return;
+    }
+    if (handle === "p1") { const p = snapPt({ x: orig.x1 + dx, y: orig.y1 + dy }); s.x1 = p.x; s.y1 = p.y; return; }
+    if (handle === "p2") { const p = snapPt({ x: orig.x2 + dx, y: orig.y2 + dy }); s.x2 = p.x; s.y2 = p.y; return; }
+    const origBbox = bboxOf(orig);
+    let nb = resizeBbox(origBbox, handle, dx, dy);
+    if (snapEnabled) {
+      const x2 = nb.x + nb.w, y2 = nb.y + nb.h;
+      const sx = Math.round(nb.x / gridStep) * gridStep, sy = Math.round(nb.y / gridStep) * gridStep;
+      const sx2 = Math.round(x2 / gridStep) * gridStep, sy2 = Math.round(y2 / gridStep) * gridStep;
+      nb = { x: sx, y: sy, w: Math.max(0.1, sx2 - sx), h: Math.max(0.1, sy2 - sy) };
+    }
+    setBbox(s, nb);
+  }
+
+  function commitPenDraft() {
+    if (!penDraft || penDraft.anchors.length < 2) { penDraft = null; penPendingDrag = null; render(); return; }
+    const shape = { id: uid(), type: "path", style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, closed: penDraft.closed, anchors: penDraft.anchors };
+    shapes().push(shape);
+    selectedId = shape.id;
+    penDraft = null; penPendingDrag = null;
+    pushHistory(); saveProject();
+    setTool("select");
+  }
+
+  svgRoot.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+
+  window.addEventListener("keydown", (e) => {
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (e.key === "Shift") shiftHeld = true;
+    if (e.key === "v" || e.key === "V") setTool("select");
+    if (e.key === "r" || e.key === "R") setTool("rect");
+    if (e.key === "o" || e.key === "O") setTool("ellipse");
+    if (e.key === "l" || e.key === "L") setTool("line");
+    if (e.key === "c" || e.key === "C") setTool("curve");
+    if (e.key === "f" || e.key === "F") setTool("freehand");
+    if (e.key === "h" || e.key === "H") setTool("cut");
+    if (e.key === "p" || e.key === "P") setTool("pan");
+    if (e.key === "m" || e.key === "M") setTool("multi");
+    if (e.key === "Enter" && tool === "curve" && penDraft) { commitPenDraft(); render(); }
+    if (e.key === "Escape") {
+      if (!cancelActiveDrag()) {
+        if (penDraft) { penDraft = null; penPendingDrag = null; render(); }
+        else if (selectedId) { selectedId = null; render(); }
+        else if (multiSelect.length) { multiSelect = []; render(); }
+      }
+    }
+    if (e.key === "Delete" || e.key === "Backspace") {
+      if (tool === "select" && selectedId) { e.preventDefault(); deleteSelected(); }
+      else if (tool === "multi" && multiSelect.length) { e.preventDefault(); bulkDeleteMultiSelect(); }
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
+  });
+  window.addEventListener("keyup", (e) => { if (e.key === "Shift") shiftHeld = false; });
+
+  function deleteSelected() {
+    const arr = shapes();
+    const idx = arr.findIndex((s) => s.id === selectedId);
+    if (idx >= 0) { arr.splice(idx, 1); selectedId = null; boolSet = boolSet.filter((id) => id !== arr[idx] && !!getShapeById(id)); pushHistory(); saveProject(); render(); }
+  }
+  // Escape mid-drag reverts the shape to its pre-drag snapshot instead of
+  // leaving a bad resize/rotate/move committed — no Undo needed for a
+  // mis-grabbed handle. Returns true if it actually cancelled something.
+  function cancelActiveDrag() {
+    if (dragMode === "move" || dragMode === "handle" || dragMode === "rotate" || dragMode === "bendline") {
+      if (dragOrigShape) {
+        const arr = shapes();
+        const idx = arr.findIndex((s) => s.id === selectedId);
+        if (idx >= 0) arr[idx] = JSON.parse(JSON.stringify(dragOrigShape));
+      }
+      // A group-move drag also has to put back every sibling it nudged,
+      // not just the shape actually grabbed.
+      dragGroupOrig.forEach((entry) => {
+        const arr = shapes();
+        const idx = arr.findIndex((s) => s.id === entry.id);
+        if (idx >= 0) arr[idx] = JSON.parse(JSON.stringify(entry.orig));
+      });
+      // Same idea for a group-resize - every member it rescaled, not
+      // just the one whose handle was actually grabbed.
+      if (dragGroupResize) {
+        dragGroupResize.members.forEach((entry) => {
+          const arr = shapes();
+          const idx = arr.findIndex((s) => s.id === entry.id);
+          if (idx >= 0) arr[idx] = JSON.parse(JSON.stringify(entry.orig));
+        });
+      }
+      dragMode = null; dragOrigShape = null; dragGroupOrig = []; dragGroupResize = null; alignGuides = null;
+      render();
+      return true;
+    }
+    if (dragMode === "draw") { draftShape = null; dragMode = null; render(); return true; }
+    if (dragMode === "marquee") { dragMode = null; marqueeRect = null; marqueeMoved = false; render(); return true; }
+    if (dragMode === "freehand") { freehandPoints = null; dragMode = null; render(); return true; }
+    return false;
+  }
+  function bulkDeleteMultiSelect() {
+    const arr = shapes();
+    multiSelect.forEach((id) => {
+      const idx = arr.findIndex((s) => s.id === id);
+      if (idx >= 0) arr.splice(idx, 1);
+    });
+    multiSelect = [];
+    pushHistory(); saveProject(); render();
+  }
+  function subtractShapes(backId, frontId) {
+    const back = getShapeById(backId), front = getShapeById(frontId);
+    if (!back || !front) return;
+    const backD = shapeToRawD(back), frontD = shapeToRawD(front);
+    if (!backD || !frontD) { showAlert("Lines have no area to cut with — shift-click two filled shapes (rect, ellipse, or curve) instead."); return; }
+    if (!shapesOverlap(backD, frontD)) {
+      showAlert("These two shapes don't overlap, so there's nothing to cut - drag the cutting shape so it actually overlaps the one being cut.");
+      return;
+    }
+    // clipD (the back shape's own outline) + frontD (the cutter's own
+    // outline, kept separately - not just folded into `d`) let
+    // shapeMarkup punch the hole via an SVG <mask> instead of an
+    // evenodd fill-rule over the concatenated path. That distinction
+    // matters whenever either shape is itself a Merge/union compound:
+    // a union's raw `d` is multiple subpaths that deliberately overlap
+    // each other (so it reads as one seamless silhouette via nonzero -
+    // see mergeSelected), and evenodd has no way to tell "this overlap
+    // is the union's own internal seam, ignore it" apart from "this
+    // overlap is where front actually cuts into back" - both just
+    // flip the same parity count, so a cutter built from an overlapping
+    // union could leave part of itself uncut or punch extra holes
+    // instead of cutting cleanly. A mask has no such ambiguity: back
+    // and front each resolve their own silhouette independently (each
+    // painted with fill-rule nonzero, exactly how they already render
+    // normally) before compositing, so self-overlap in either one is
+    // never confused with the back/front intersection.
+    const compound = { id: uid(), type: "compound", d: backD + " " + frontD, clipD: backD, frontD: frontD, style: back.style === "outline" ? "filled" : back.style, strokeWidth: back.strokeWidth || 1.6 };
+    const arr = shapes();
+    [backId, frontId].forEach((id) => {
+      const idx = arr.findIndex((s) => s.id === id);
+      if (idx >= 0) arr.splice(idx, 1);
+    });
+    arr.push(compound);
+    selectedId = compound.id;
+    boolSet = [];
+    pushHistory(); saveProject(); render();
+  }
+  // Filled shapes get boolean-unioned into one compound (same
+  // concatenated-raw-d trick subtractShapes uses, but fill-rule
+  // "nonzero" instead of "evenodd" so consistent-winding overlaps
+  // merge into one silhouette instead of punching a hole - see
+  // shapeMarkup's compound branch, which reads this from op:"union").
+  // Outline shapes (plus any lone leftover filled shape, plus the new
+  // union compound if one was made) get tagged with a shared groupId
+  // instead, so they move together - not a boolean op at all, just
+  // "these shapes share a groupId" (see the move-drag handling in
+  // onPointerDown/onPointerMove, which looks up group siblings by that
+  // id), far less invasive than adding a real nested group container.
+  function mergeSelected() {
+    const ids = multiSelect.slice();
+    if (ids.length < 2) return;
+    const selected = ids.map(getShapeById).filter(Boolean);
+    const isFilled = (sh) => sh.type !== "line" && sh.style !== "outline";
+    const filled = selected.filter(isFilled);
+    const outline = selected.filter((sh) => !isFilled(sh));
+    const arr = shapes();
+
+    let unionId = null;
+    if (filled.length >= 2) {
+      const ds = filled.map(shapeToRawD).filter(Boolean);
+      if (ds.length >= 2) {
+        const compound = { id: uid(), type: "compound", op: "union", d: ds.join(" "), style: filled[0].style, strokeWidth: filled[0].strokeWidth || 1.6 };
+        filled.forEach((sh) => { const idx = arr.findIndex((x) => x.id === sh.id); if (idx >= 0) arr.splice(idx, 1); });
+        arr.push(compound);
+        unionId = compound.id;
+      }
+    }
+
+    const groupMemberIds = outline.map((sh) => sh.id);
+    if (unionId) groupMemberIds.push(unionId);
+    else if (filled.length === 1) groupMemberIds.push(filled[0].id);
+    if (groupMemberIds.length >= 2) {
+      const groupId = uid();
+      groupMemberIds.forEach((id) => { const sh = getShapeById(id); if (sh) sh.groupId = groupId; });
+      multiSelect = groupMemberIds;
+      selectedId = null;
+      // Grouping has no immediate visual change of its own (unlike a
+      // union, which visibly becomes one new shape right away) - it only
+      // shows up once you actually drag one of the members. Without this,
+      // clicking Merge on a selection with a line or other outline shape
+      // in it looked like nothing happened at all.
+      showAlert(groupMemberIds.length + " shapes grouped - drag any one of them and the rest move with it. Lines/outline shapes have no fill to boolean-merge, so grouping is what Merge does for them.");
+    } else {
+      multiSelect = [];
+      selectedId = unionId;
+    }
+    boolSet = [];
+    pushHistory(); saveProject(); render();
+  }
+  function groupMembers(groupId) {
+    return shapes().filter((sh) => sh.groupId === groupId);
+  }
+  function ungroupShape(id) {
+    const s = getShapeById(id);
+    if (!s || !s.groupId) return;
+    groupMembers(s.groupId).forEach((sh) => { delete sh.groupId; });
+    pushHistory(); saveProject(); render();
+  }
+  function reorderShape(id, where) {
+    const arr = shapes();
+    const idx = arr.findIndex((s) => s.id === id);
+    if (idx < 0) return;
+    const s = arr.splice(idx, 1)[0];
+    if (where === "front") arr.push(s); else arr.unshift(s);
+    pushHistory(); saveProject(); render();
+  }
+  // Shared by duplicateSelected (one shape, or its whole group if it has
+  // one) and bulkDuplicateMultiSelect (whatever's multi-selected) - a
+  // group of 2+ duplicates gets its OWN fresh shared groupId, so the
+  // copies stay grouped together as a new, independent unit rather than
+  // silently rejoining the originals' group or coming in ungrouped.
+  function duplicateShapes(ids) {
+    const members = ids.map(getShapeById).filter(Boolean);
+    if (!members.length) return [];
+    const newGroupId = members.length > 1 ? uid() : null;
+    const copies = members.map((m) => {
+      const copy = JSON.parse(JSON.stringify(m));
+      copy.id = uid();
+      if (newGroupId) copy.groupId = newGroupId; else delete copy.groupId;
+      if (copy.type === "rect") { copy.x += 1; copy.y += 1; }
+      else if (copy.type === "ellipse") { copy.cx += 1; copy.cy += 1; }
+      else if (copy.type === "line") { copy.x1 += 1; copy.y1 += 1; copy.x2 += 1; copy.y2 += 1; }
+      else if (copy.type === "path") copy.anchors = copy.anchors.map((a) => ({ ...a, x: a.x + 1, y: a.y + 1 }));
+      else if (copy.type === "compound") {
+        copy.d = translatePathD(copy.d, 1, 1);
+        if (copy.clipD) copy.clipD = translatePathD(copy.clipD, 1, 1);
+        if (copy.frontD) copy.frontD = translatePathD(copy.frontD, 1, 1);
+      }
+      return copy;
+    });
+    shapes().push(...copies);
+    return copies;
+  }
+  function duplicateSelected() {
+    const s = getShapeById(selectedId);
+    if (!s) return;
+    const ids = s.groupId ? groupMembers(s.groupId).map((m) => m.id) : [s.id];
+    const copies = duplicateShapes(ids);
+    if (!copies.length) return;
+    selectedId = copies[copies.length - 1].id;
+    pushHistory(); saveProject(); render();
+  }
+  function bulkDuplicateMultiSelect() {
+    const copies = duplicateShapes(multiSelect);
+    if (!copies.length) return;
+    multiSelect = copies.map((c) => c.id);
+    pushHistory(); saveProject(); render();
+  }
+  // Tags every selected shape with a shared groupId so they move (and,
+  // if none are rotated, resize) together - unlike Merge, this never
+  // touches fill/style/stroke at all, so shapes that need to stay
+  // visually distinct (different stroke widths, filled next to outline,
+  // etc.) can still be grouped without Merge's union flattening them
+  // into one look.
+  function groupSelectedShapes() {
+    const ids = multiSelect.slice();
+    if (ids.length < 2) return;
+    const groupId = uid();
+    ids.forEach((id) => { const sh = getShapeById(id); if (sh) sh.groupId = groupId; });
+    multiSelect = ids;
+    showToast(ids.length + " shapes grouped - each keeps its own look, drag any one to move them together.");
+    pushHistory(); saveProject(); render();
+  }
+
+  function setTool(name) {
+    if (tool === "curve" && penDraft) { penDraft = null; penPendingDrag = null; }
+    tool = name;
+    if (name !== "select") selectedId = null;
+    // boolSet is shared between Select (shift-click) and Cut (plain tap) so
+    // you can start picking shapes in one and finish in the other.
+    if (name !== "select" && name !== "cut") boolSet = [];
+    if (name !== "multi") { multiSelect = []; marqueeRect = null; marqueeMoved = false; }
+    if (name !== "freehand") freehandPoints = null;
+    document.querySelectorAll(".tool-btn").forEach((b) => b.classList.toggle("active", b.dataset.tool === name));
+    svgRoot.classList.toggle("select-cursor", name === "select" || name === "multi" || name === "cut");
+    svgRoot.classList.toggle("pan-active", name === "pan");
+    render();
+  }
+  document.querySelectorAll(".tool-btn").forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
+
+  document.getElementById("toggleLeftBtn").addEventListener("click", () => {
+    const grid = document.querySelector(".body-grid");
+    const hidden = grid.classList.toggle("hide-left");
+    document.getElementById("toggleLeftBtn").textContent = hidden ? "▶" : "◀";
+  });
+  // Drag-to-resize for the Properties/Boolean panel sections - each
+  // handle's own preceding sibling (.stack) is the panel it resizes.
+  // Sets an explicit px height (overridden from the CSS max-height/
+  // min-height only once dragged) so #propsPanel/#boolPanel's own
+  // overflow-y:auto actually has a fixed box to scroll inside of.
+  document.querySelectorAll(".panel-resize-handle").forEach((handle) => {
+    handle.addEventListener("pointerdown", (evt) => {
+      const target = document.getElementById(handle.dataset.resizeTarget);
+      if (!target) return;
+      const startY = evt.clientY;
+      const startHeight = target.getBoundingClientRect().height;
+      handle.classList.add("dragging");
+      handle.setPointerCapture(evt.pointerId);
+      const onMove = (mv) => {
+        const next = clamp(startHeight + (mv.clientY - startY), 48, window.innerHeight * 0.7);
+        target.style.height = next + "px";
+      };
+      const onUp = (up) => {
+        handle.releasePointerCapture(up.pointerId);
+        handle.classList.remove("dragging");
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      evt.preventDefault();
+    });
+  });
+  // Floating preview window - open/close, drag-to-move (via its header
+  // bar), drag-to-resize (via the corner grip). Position/size are plain
+  // inline styles, not persisted - resets on reload, same as every
+  // other session-only UI preference in this tool (left-sidebar
+  // collapse, panel heights).
+  (function setUpFloatingPreview() {
+    const win = document.getElementById("floatingPreview");
+    const head = document.getElementById("floatingPreviewHead");
+    const resizeHandle = document.getElementById("floatingPreviewResize");
+    document.getElementById("floatPreviewBtn").addEventListener("click", () => {
+      win.classList.remove("hidden");
+      renderPreview();
+    });
+    document.getElementById("floatingPreviewClose").addEventListener("click", () => win.classList.add("hidden"));
+    head.addEventListener("pointerdown", (evt) => {
+      if (evt.target.closest(".floating-preview-close")) return;
+      const startX = evt.clientX, startY = evt.clientY;
+      const rect = win.getBoundingClientRect();
+      const startLeft = rect.left, startTop = rect.top;
+      head.setPointerCapture(evt.pointerId);
+      const onMove = (mv) => {
+        const nextLeft = clamp(startLeft + (mv.clientX - startX), -rect.width + 60, window.innerWidth - 60);
+        const nextTop = clamp(startTop + (mv.clientY - startY), 0, window.innerHeight - 40);
+        win.style.left = nextLeft + "px";
+        win.style.top = nextTop + "px";
+        win.style.right = "auto";
+      };
+      const onUp = (up) => {
+        head.releasePointerCapture(up.pointerId);
+        head.removeEventListener("pointermove", onMove);
+        head.removeEventListener("pointerup", onUp);
+      };
+      head.addEventListener("pointermove", onMove);
+      head.addEventListener("pointerup", onUp);
+      evt.preventDefault();
+    });
+    resizeHandle.addEventListener("pointerdown", (evt) => {
+      const rect = win.getBoundingClientRect();
+      const startX = evt.clientX, startY = evt.clientY;
+      const startW = rect.width, startH = rect.height;
+      resizeHandle.classList.add("dragging");
+      resizeHandle.setPointerCapture(evt.pointerId);
+      const onMove = (mv) => {
+        win.style.width = clamp(startW + (mv.clientX - startX), 140, window.innerWidth * 0.9) + "px";
+        win.style.height = clamp(startH + (mv.clientY - startY), 160, window.innerHeight * 0.9) + "px";
+      };
+      const onUp = (up) => {
+        resizeHandle.releasePointerCapture(up.pointerId);
+        resizeHandle.classList.remove("dragging");
+        resizeHandle.removeEventListener("pointermove", onMove);
+        resizeHandle.removeEventListener("pointerup", onUp);
+      };
+      resizeHandle.addEventListener("pointermove", onMove);
+      resizeHandle.addEventListener("pointerup", onUp);
+      evt.preventDefault();
+    });
+  })();
+  document.getElementById("undoBtn").addEventListener("click", undo);
+  document.getElementById("redoBtn").addEventListener("click", redo);
+  document.getElementById("snapToggle").addEventListener("change", (e) => { snapEnabled = e.target.checked; });
+  document.getElementById("gridToggle").addEventListener("change", (e) => { showGrid = e.target.checked; render(); });
+  document.getElementById("gridMode").addEventListener("change", (e) => { gridMode = e.target.value; render(); });
+  document.getElementById("defaultStrokeWidth").addEventListener("change", (e) => { defaultStrokeWidth = Math.max(0.2, +e.target.value || 1.6); });
+  document.getElementById("freehandSmoothing").addEventListener("input", (e) => {
+    freehandSmoothing = +e.target.value;
+    document.getElementById("freehandSmoothingLabel").textContent = freehandSmoothing + "%";
+  });
+  document.getElementById("zoomIn").addEventListener("click", () => { zoom = clamp(zoom + 4, 6, 64); render(); });
+  document.getElementById("zoomOut").addEventListener("click", () => { zoom = clamp(zoom - 4, 6, 64); render(); });
+  document.getElementById("vbW").addEventListener("change", (e) => { project.viewBox.w = clamp(+e.target.value || 24, 4, 512); pushHistory(); saveProject(); render(); });
+  document.getElementById("vbH").addEventListener("change", (e) => { project.viewBox.h = clamp(+e.target.value || 24, 4, 512); pushHistory(); saveProject(); render(); });
+
+  document.getElementById("addIconBtn").addEventListener("click", async () => {
+    const name = await showPrompt('New icon name (e.g. "EZ Bar"):', "");
+    if (!name || !name.trim()) return;
+    const words = name.trim().replace(/[^a-zA-Z0-9]+/g, " ").trim().split(" ");
+    const key = words.map((w, i) => (i === 0 ? w[0].toLowerCase() + w.slice(1) : w[0].toUpperCase() + w.slice(1))).join("");
+    if (!key || project.icons[key]) { showAlert("Pick a different name — that key is already used."); return; }
+    project.icons[key] = { name: name.trim(), shapes: [] };
+    project.activeKey = key;
+    selectedId = null;
+    boolSet = [];
+    multiSelect = [];
+    pushHistory(); saveProject(); render();
+  });
+
+  document.getElementById("newProjectBtn").addEventListener("click", async () => {
+    const ok = await showConfirm("Start a new project? This clears every icon in the editor. Export or download first if you want to keep this set.");
+    if (!ok) return;
+    project = createDefaultProject();
+    selectedId = null;
+    boolSet = [];
+    multiSelect = [];
+    history = []; historyIndex = -1; pushHistory();
+    saveProject(); render();
+  });
+  document.getElementById("exportProjectBtn").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "svg-icon-project.json";
+    a.click();
+    // Can't actually confirm this landed anywhere - a.click() on a
+    // sandboxed page can silently do nothing at all (no error, no
+    // download, nothing) if the surrounding context doesn't allow file
+    // downloads. Pointing at the Copy as Text fallback right in the
+    // toast, rather than just claiming success outright.
+    showToast("Triggered a save of svg-icon-project.json - check Downloads. Nothing there? Use \"Copy as Text\" instead.");
+  });
+  document.getElementById("copyProjectTextBtn").addEventListener("click", () => {
+    showTextExport(JSON.stringify(project, null, 2));
+  });
+  document.getElementById("pasteProjectTextBtn").addEventListener("click", async () => {
+    const text = await showTextImport();
+    if (!text || !text.trim()) return;
+    try {
+      const p = JSON.parse(text);
+      if (!p.icons || !p.viewBox) throw new Error("bad project");
+      project = p;
+      if (!project.activeKey || !project.icons[project.activeKey]) project.activeKey = Object.keys(project.icons)[0];
+      selectedId = null;
+      boolSet = [];
+      multiSelect = [];
+      history = []; historyIndex = -1; pushHistory();
+      saveProject(); render();
+      showToast("Project loaded.");
+    } catch (err) { showAlert("Could not read that text as a project export - make sure it's the exact text from \"Copy as Text\"."); }
+  });
+  document.getElementById("importProjectInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const p = JSON.parse(reader.result);
+        if (!p.icons || !p.viewBox) throw new Error("bad file");
+        project = p;
+        if (!project.activeKey || !project.icons[project.activeKey]) project.activeKey = Object.keys(project.icons)[0];
+        selectedId = null;
+        boolSet = [];
+        multiSelect = [];
+        history = []; historyIndex = -1; pushHistory();
+        saveProject(); render();
+      } catch (err) { showAlert("Could not read that file as a project export."); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  });
+
+  document.getElementById("importBtn").addEventListener("click", () => {
+    const ta = document.getElementById("importText");
+    const text = ta.value.trim();
+    if (!text) return;
+    const result = parseMarkupToShapes(text);
+    shapes().push(...result.shapes);
+    selectedId = null;
+    pushHistory(); saveProject(); render();
+    ta.value = "";
+    if (result.skipped > 0) showAlert("Imported " + result.shapes.length + " shape(s), skipped " + result.skipped + " element(s) that weren't recognized.");
+  });
+
+  document.querySelectorAll('input[name="exportMode"]').forEach((r) => r.addEventListener("change", () => {
+    const isStandalone = document.querySelector('input[name="exportMode"]:checked').value === "standalone";
+    document.getElementById("standaloneColorRow").style.display = isStandalone ? "flex" : "none";
+    renderExport();
+  }));
+  document.getElementById("standaloneColor").addEventListener("input", renderExport);
+  // Auto-selects the whole box the moment it's tapped/focused - one less
+  // step (no manual drag-to-select) before "Select All > Copy" from the
+  // device's own menu, the one export path that works with zero browser
+  // permissions (see the hint text above this box).
+  document.getElementById("exportText").addEventListener("focus", (e) => e.target.select());
+  document.getElementById("exportText").addEventListener("click", (e) => e.target.select());
+  document.getElementById("copyBtn").addEventListener("click", () => {
+    const ta = document.getElementById("exportText");
+    ta.value = buildFullSvg().full;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value);
+    } else {
+      ta.select(); document.execCommand("copy");
+    }
+    showToast("Copied to clipboard.");
+  });
+  // The XML declaration is optional in every modern browser (SVG
+  // defaults to UTF-8 without it) and was never a "this file is safe"
+  // signal to begin with - almost certainly not why saving/sharing has
+  // been failing (three unrelated mechanisms failing identically points
+  // at the iframe sandbox itself, not the file's content), but it's
+  // zero-risk to include and rules the theory out for certain.
+  // Shared by the live export textarea, Copy, Download, and Open in New
+  // Tab/Share - ONE place that wraps whatever inner shape/defs markup
+  // it's given into an actual complete, valid SVG document (XML
+  // declaration, real <svg> root, real width/height). Previously only
+  // Download/Share got this wrapper - the visible/copyable textarea
+  // showed just the bare inner fragment, which is not a valid standalone
+  // .svg file on its own (no root element at all) - a real bug once
+  // manual copy-paste became the only reliably-working export path.
+  function wrapSvgDocument(text, mode) {
+    const xmlHeader = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    if (mode === "all") {
+      return { full: xmlHeader + '<svg xmlns="' + SVGNS + '" width="0" height="0" style="position:absolute">\n' + text + "\n</svg>", filename: "svg-icon-pack.svg" };
+    }
+    const full = xmlHeader + '<svg xmlns="' + SVGNS + '" viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '" width="' + project.viewBox.w + '" height="' + project.viewBox.h + '">\n  ' + text + "\n</svg>";
+    const filename = project.activeKey + (mode === "standalone" ? "-standalone" : "") + ".svg";
+    return { full, filename };
+  }
+  function currentExportMode() {
+    const modeInput = document.querySelector('input[name="exportMode"]:checked');
+    return modeInput ? modeInput.value : "active";
+  }
+  // The optimized, fully-wrapped document - what Copy/Download/Share all
+  // actually hand off, and also what the visible textarea gets set to
+  // right after any of them run, so what's on screen always matches
+  // exactly what was copied/downloaded/shared.
+  function buildFullSvg() {
+    return wrapSvgDocument(optimizedExportMarkup(), currentExportMode());
+  }
+  document.getElementById("downloadBtn").addEventListener("click", () => {
+    const { full, filename } = buildFullSvg();
+    document.getElementById("exportText").value = full;
+    const blob = new Blob([full], { type: "image/svg+xml" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    showToast("Triggered a save of " + filename + " - check Downloads. Nothing there? Use Copy or Open in New Tab instead.");
+  });
+  // Downloads (the `download` attribute above) ask the browser to save
+  // a file directly, which some hosting contexts (including this one,
+  // apparently) can silently refuse with no error and no visible sign
+  // anything happened. Just NAVIGATING to a blob URL in a new tab is a
+  // different, much less restricted capability - the SVG/JSON opens as
+  // its own real page there, and the browser's own native Save Page As
+  // (or Ctrl/Cmd+S) saves it as an actual file from that point, same as
+  // saving any other web page - not dependent on this page's own
+  // download permissions at all.
+  //
+  // window.open (and separately, navigator.share) are only honored as a
+  // real user action when called SYNCHRONOUSLY inside the click handler
+  // itself - Safari in particular revokes that "this came from a real
+  // click" status the moment ANY promise resolves first, even one that
+  // settles instantly, because resuming after an `await` always runs
+  // via the microtask queue, outside the original call stack. The
+  // earlier version of this function awaited navigator.share() BEFORE
+  // trying window.open() as a fallback - meaning that fallback call
+  // was never actually synchronous with the click at all, and Safari
+  // was very likely blocking it for THAT reason, independent of
+  // whatever the iframe's own sandbox permissions allow. Fixed by
+  // trying both mechanisms directly, synchronously, in the click
+  // handler - window.open() first (simpler, and every part of building
+  // its URL here - Blob, createObjectURL - is already synchronous, no
+  // real async gap to bridge), share() only as a fallback if THAT
+  // specific call returns null, still attempted with no await ahead of
+  // it either.
+  function shareOrOpenFile(content, mimeType, filename) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (win) {
+      showToast("Opened in a new tab - use your browser's Save Page As (or Ctrl/Cmd+S) there to save it as a file.");
+      return;
+    }
+    if (navigator.share) {
+      let file;
+      try { file = new File([content], filename, { type: mimeType }); } catch (e) { file = null; }
+      if (file && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        navigator.share({ files: [file], title: filename }).catch((e) => {
+          // AbortError = user cancelled the share sheet themselves, not
+          // a failure - no further fallback/alert for a deliberate cancel.
+          if (e && e.name === "AbortError") return;
+          showAlert("That got blocked too - your browser/device isn't letting this page open tabs or share files directly. Copy/Copy as Text (select the text and use your device's own Copy, not this page's button, if even that doesn't respond) is the one fallback that doesn't depend on any browser permission at all.");
+        });
+        return;
+      }
+    }
+    showAlert("That got blocked too - your browser/device isn't letting this page open tabs or share files directly. Copy/Copy as Text (select the text and use your device's own Copy, not this page's button, if even that doesn't respond) is the one fallback that doesn't depend on any browser permission at all.");
+  }
+  document.getElementById("openProjectTabBtn").addEventListener("click", () => {
+    shareOrOpenFile(JSON.stringify(project, null, 2), "application/json", "svg-icon-project.json");
+  });
+  document.getElementById("openSvgTabBtn").addEventListener("click", () => {
+    const { full, filename } = buildFullSvg();
+    shareOrOpenFile(full, "image/svg+xml", filename);
+  });
+  // Last-resort fallback: a sandbox can gate "open a NEW browsing
+  // context" (window.open/share) separately from "navigate THIS one" -
+  // self-navigating to a blob URL you created yourself is a materially
+  // different, often more-permitted operation, even under the same
+  // sandbox. Deliberately its own explicit button, not silently chained
+  // after Share/Open in Tab fails - unlike every other fallback here,
+  // this one actually leaves the tool (project data is safe regardless,
+  // autosaved to localStorage independently of this page's lifetime,
+  // but the page itself navigates away), so it needs the user's own
+  // deliberate choice, not an automatic attempt.
+  document.getElementById("navigateSvgBtn").addEventListener("click", async () => {
+    const ok = await showConfirm("This replaces the current view with the raw SVG - your project stays saved, but you'll need your browser's Back button to get back to the editor. Continue?");
+    if (!ok) return;
+    const { full } = buildFullSvg();
+    const blob = new Blob([full], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    try {
+      window.location.href = url;
+    } catch (e) {
+      showAlert("That got blocked too - your browser isn't letting this page navigate itself either. Copy/Copy as Text is the one fallback that doesn't depend on any browser permission at all.");
+    }
+  });
+
+  // ---------- render ----------
+  function switchIcon(key) {
+    if (key === project.activeKey) return;
+    project.activeKey = key;
+    selectedId = null;
+    boolSet = [];
+    multiSelect = [];
+    saveProject(); render();
+  }
+
+  function renderIconList() {
+    const list = document.getElementById("iconList");
+    const rows = [];
+    Object.keys(project.icons).forEach((key) => {
+      const icon = project.icons[key];
+      rows.push(
+        '<div class="icon-row' + (key === project.activeKey ? " active" : "") + '" data-key="' + key + '">' +
+        '<svg viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '" class="icon-row-thumb">' + shapesMarkup(icon.shapes) + "</svg>" +
+        '<span class="icon-row-name">' + icon.name + "</span>" +
+        '<span class="icon-row-count">' + icon.shapes.length + "</span>" +
+        '<button class="icon-row-del" data-del="' + key + '" title="Delete icon">✕</button>' +
+        "</div>"
+      );
+    });
+    list.innerHTML = rows.join("");
+    list.querySelectorAll(".icon-row").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.classList.contains("icon-row-del")) return;
+        switchIcon(row.dataset.key);
+      });
+    });
+    list.querySelectorAll(".icon-row-del").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const key = btn.dataset.del;
+        if (Object.keys(project.icons).length <= 1) { showAlert("Keep at least one icon."); return; }
+        const ok = await showConfirm('Delete "' + project.icons[key].name + '"?');
+        if (!ok) return;
+        delete project.icons[key];
+        if (project.activeKey === key) project.activeKey = Object.keys(project.icons)[0];
+        selectedId = null;
+        boolSet = [];
+        multiSelect = [];
+        pushHistory(); saveProject(); render();
+      });
+    });
+  }
+
+  // A shape is "on top" if its own bounding box overlaps any shape
+  // earlier in the same array (z-order == array order everywhere else
+  // in this tool, e.g. front/back reorder buttons just move array
+  // position) - a cheap bbox check, not the exact boundary-sampling
+  // shapesOverlap uses for the Cut tool, since this runs on every
+  // render (including live drag feedback) and only needs to be a
+  // helpful visual cue, not pixel-exact.
+  // Editor-canvas-only shading, one per shape, cycling through a small
+  // near-white palette by array index - replaces the old overlap-only
+  // tint (which only recolored a shape when it happened to sit over
+  // another one) with something that separates EVERY shape at a
+  // glance, stacked or not. Never touches shapeMarkup/shapesMarkup
+  // itself, so Export/Preview still render true currentColor.
+  const SHADE_PALETTE = ["#ffffff", "#dbe4ff", "#ffe1e1", "#dcffe4", "#fff3d1", "#e6d9ff", "#d1f5ff", "#ffe0f0"];
+  function renderShapesLayer() {
+    const arr = shapes();
+    const normal = arr.filter((s) => !s.knockout);
+    const markup = normal.map((s, i) => '<g style="color:' + SHADE_PALETTE[i % SHADE_PALETTE.length] + '">' + shapeMarkup(s) + "</g>").join("\n  ");
+    document.getElementById("shapesLayer").innerHTML = applyKnockoutMask(markup, arr);
+  }
+
+  function renderUI() {
+    const parts = [];
+    // Knockout shapes never paint their own fill (see
+    // applyKnockoutMask/renderShapesLayer) - this dashed marker is the
+    // only thing that makes them visible/findable at all, so it's
+    // always on regardless of tool, not just while selected.
+    shapes().forEach((s) => { if (s.knockout) parts.push(shapeOutlineMarkup(s, "knockout-outline")); });
+    if (tool === "select" || tool === "multi" || tool === "cut") shapes().forEach((s) => parts.push(hitTargetMarkup(s)));
+    if (draftShape) parts.push(shapeMarkup(draftShape).replace(/\/>$/, ' class="draft-preview"/>'));
+    if (freehandPoints && freehandPoints.length > 1) {
+      const d = "M " + freehandPoints.map((fp) => fmt(fp.x) + " " + fmt(fp.y)).join(" L ");
+      parts.push('<path d="' + d + '" class="pen-preview"/>');
+    }
+    if (penDraft) {
+      if (penDraft.anchors.length > 1) parts.push('<path d="' + pathD(penDraft.anchors, false) + '" class="pen-preview"/>');
+      penDraft.anchors.forEach((a) => {
+        parts.push('<circle cx="' + fmt(a.x) + '" cy="' + fmt(a.y) + '" r="0.5" class="pen-anchor"/>');
+        if (Math.abs(a.hout.dx) > 0.001 || Math.abs(a.hout.dy) > 0.001) {
+          parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hout.dx) + '" y2="' + fmt(a.y + a.hout.dy) + '" class="handle-guide"/>');
+          parts.push('<circle cx="' + fmt(a.x + a.hout.dx) + '" cy="' + fmt(a.y + a.hout.dy) + '" r="0.4" class="pen-handle"/>');
+        }
+      });
+    }
+    const s = getShapeById(selectedId);
+    if (s && tool === "select") {
+      // A prominent translucent fill/stroke so the selected shape reads
+      // clearly even when it's sitting on top of another shape - unlike
+      // .multi-outline/.bool-outline (also built on shapeOutlineMarkup),
+      // this one doesn't correct for the shape's own rotation, matching
+      // those existing outline indicators' same accepted limitation.
+      parts.push(shapeOutlineMarkup(s, "selected-highlight"));
+      if (s.type === "line") {
+        parts.push(handleMarkup(s.x1, s.y1, "p1"));
+        parts.push(handleMarkup(s.x2, s.y2, "p2"));
+        parts.push(handleMarkup((s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2, "bend", "handle-bend"));
+      } else {
+        // The FULL transform (skew baked in before rotate, exactly like
+        // the shape's own rendering - see transformAttr) - a rotate()-
+        // only wrapper here would leave the outline/handles showing
+        // where the shape would be if it were only rotated, not
+        // matching a skewed shape's true visual position/shape at all.
+        const center = shapeCenter(s);
+        parts.push('<g' + transformAttr(s) + ">");
+        if (s.type === "rect" || s.type === "ellipse") {
+          const b = bboxOf(s);
+          parts.push('<rect x="' + fmt(b.x) + '" y="' + fmt(b.y) + '" width="' + fmt(b.w) + '" height="' + fmt(b.h) + '" class="selection-outline"/>');
+          HANDLE_DEFS.forEach((hd) => parts.push(handleMarkup(b.x + b.w * hd.gx, b.y + b.h * hd.gy, hd.name)));
+        } else if (s.type === "path") {
+          s.anchors.forEach((a, i) => {
+            parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hin.dx) + '" y2="' + fmt(a.y + a.hin.dy) + '" class="handle-guide"/>');
+            parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hout.dx) + '" y2="' + fmt(a.y + a.hout.dy) + '" class="handle-guide"/>');
+            parts.push(handleMarkup(a.x + a.hin.dx, a.y + a.hin.dy, "hin-" + i, "handle-diamond"));
+            parts.push(handleMarkup(a.x + a.hout.dx, a.y + a.hout.dy, "hout-" + i, "handle-diamond"));
+            parts.push(handleMarkup(a.x, a.y, "anchor-" + i, "handle-anchor"));
+          });
+        } else if (s.type === "compound") {
+          // The true silhouette outline, plus the same 8 bbox handles
+          // rect/ellipse use (via bboxOf/setBbox, both now compound-aware)
+          // - Cut/Merge output had no resize handles at all before this,
+          // only move and rotate worked.
+          parts.push('<path d="' + compoundVisualD(s) + '" class="selection-outline"/>');
+          const cb = bboxOf(s);
+          HANDLE_DEFS.forEach((hd) => parts.push(handleMarkup(cb.x + cb.w * hd.gx, cb.y + cb.h * hd.gy, hd.name)));
+        }
+        const rp = rotateHandlePos(s);
+        parts.push('<line x1="' + fmt(center.x) + '" y1="' + fmt(rp.y + 0.6) + '" x2="' + fmt(rp.x) + '" y2="' + fmt(rp.y) + '" class="handle-guide"/>');
+        parts.push(handleMarkup(rp.x, rp.y, "rotate", "handle-rotate"));
+        parts.push("</g>");
+      }
+    }
+    if ((tool === "select" || tool === "cut") && boolSet.length) {
+      boolSet.forEach((id, idx) => {
+        const bs = getShapeById(id);
+        if (bs) parts.push(shapeOutlineMarkup(bs, idx === 0 ? "bool-outline-back" : "bool-outline-front"));
+      });
+    }
+    if (tool === "multi") {
+      multiSelect.forEach((id) => {
+        const ms = getShapeById(id);
+        if (ms) parts.push(shapeOutlineMarkup(ms, "multi-outline"));
+      });
+      if (marqueeRect) {
+        parts.push('<rect x="' + fmt(marqueeRect.x) + '" y="' + fmt(marqueeRect.y) + '" width="' + fmt(marqueeRect.w) + '" height="' + fmt(marqueeRect.h) + '" class="marquee-rect"/>');
+      }
+    }
+    if (dragMode === "move" && alignGuides) {
+      alignGuides.forEach((g) => {
+        if (g.axis === "v") parts.push('<line x1="' + fmt(g.pos) + '" y1="' + fmt(g.from) + '" x2="' + fmt(g.pos) + '" y2="' + fmt(g.to) + '" class="align-guide"/>');
+        else parts.push('<line x1="' + fmt(g.from) + '" y1="' + fmt(g.pos) + '" x2="' + fmt(g.to) + '" y2="' + fmt(g.pos) + '" class="align-guide"/>');
+      });
+    }
+    document.getElementById("uiLayer").innerHTML = parts.join("");
+  }
+
+  // Generates one family of parallel grid lines at angleDeg (from
+  // horizontal), evenly spaced (perpendicular distance between consecutive
+  // lines), long enough to cover a w x h box regardless of angle - #artboard
+  // has overflow:hidden, so the excess just gets clipped at the canvas edge
+  // rather than needing exact rectangle-clipping math here.
+  function gridLineFamily(angleDeg, spacing, w, h, majorEvery) {
+    const theta = (angleDeg * Math.PI) / 180;
+    const perp = theta + Math.PI / 2;
+    const ux = Math.cos(theta), uy = Math.sin(theta);
+    const px = Math.cos(perp), py = Math.sin(perp);
+    const half = (w + h) * 1.5;
+    const count = Math.ceil((w + h) / spacing) + 2;
+    const parts = [];
+    for (let k = -count; k <= count; k++) {
+      const cx = k * spacing * px, cy = k * spacing * py;
+      const x1 = cx - half * ux, y1 = cy - half * uy;
+      const x2 = cx + half * ux, y2 = cy + half * uy;
+      const cls = majorEvery && k % majorEvery === 0 ? "major" : "";
+      parts.push('<line x1="' + fmt(x1) + '" y1="' + fmt(y1) + '" x2="' + fmt(x2) + '" y2="' + fmt(y2) + '" class="' + cls + '"/>');
+    }
+    return parts;
+  }
+
+  function renderGrid() {
+    const g = document.getElementById("gridLayer");
+    if (!showGrid) { g.innerHTML = ""; return; }
+    const { w, h } = project.viewBox;
+    let parts = [];
+    if (gridMode === "isometric") {
+      // All three axes of the lattice (90/30/150 degrees) share the same
+      // perpendicular spacing in a proper triangular grid - see isoSnapPt's
+      // comment for the derivation.
+      const spacing = ISO_STEP * Math.cos(ISO_ANGLE);
+      parts = parts.concat(gridLineFamily(90, spacing, w, h, 4));
+      parts = parts.concat(gridLineFamily(30, spacing, w, h, 4));
+      parts = parts.concat(gridLineFamily(-30, spacing, w, h, 4));
+    } else {
+      for (let x = 0; x <= w; x += 1) parts.push('<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + h + '" class="' + (x % 4 === 0 ? "major" : "") + '"/>');
+      for (let y = 0; y <= h; y += 1) parts.push('<line x1="0" y1="' + y + '" x2="' + w + '" y2="' + y + '" class="' + (y % 4 === 0 ? "major" : "") + '"/>');
+    }
+    g.innerHTML = parts.join("");
+  }
+
+  function renderProperties() {
+    const panel = document.getElementById("propsPanel");
+    if (tool === "multi") {
+      if (!multiSelect.length) {
+        panel.innerHTML = '<p class="muted">Click shapes, or drag an empty area to marquee-select several. Click empty space (or Esc) to clear.</p>';
+        return;
+      }
+      panel.innerHTML =
+        '<p class="muted">' + multiSelect.length + " shape(s) selected.</p>" +
+        '<div class="prop-row"><label>Stroke width</label><input id="bulkStrokeWidth" type="number" step="0.1" min="0.2" placeholder="value"></div>' +
+        '<div class="btn-row"><button id="bulkApplyStroke" class="primary">Apply to selected</button></div>' +
+        (multiSelect.length >= 2
+          ? '<div class="btn-row"><button id="bulkGroup">Group selected</button><button id="bulkMerge">Merge selected</button></div>' +
+            '<p class="muted" style="font-size:10.5px;">Group just ties them together for moving (and resizing) - each shape keeps its own style/stroke. Merge unions filled shapes into one solid look instead (outline shapes, and any lone filled leftover, get grouped since there\'s no fill to union).</p>'
+          : "") +
+        '<div class="btn-row"><button id="bulkDuplicate">Duplicate selected</button><button id="bulkDelete" class="danger">Delete selected</button></div>';
+      document.getElementById("bulkApplyStroke").addEventListener("click", () => {
+        const val = +document.getElementById("bulkStrokeWidth").value;
+        if (!val || val <= 0) return;
+        multiSelect.forEach((id) => { const ms = getShapeById(id); if (ms) ms.strokeWidth = val; });
+        pushHistory(); saveProject(); render();
+      });
+      const groupBtn = document.getElementById("bulkGroup");
+      if (groupBtn) groupBtn.addEventListener("click", groupSelectedShapes);
+      const mergeBtn = document.getElementById("bulkMerge");
+      if (mergeBtn) mergeBtn.addEventListener("click", mergeSelected);
+      document.getElementById("bulkDuplicate").addEventListener("click", bulkDuplicateMultiSelect);
+      document.getElementById("bulkDelete").addEventListener("click", bulkDeleteMultiSelect);
+      return;
+    }
+    const s = getShapeById(selectedId);
+    if (!s || tool !== "select") { panel.innerHTML = '<p class="muted">Pick a tool above and draw, or select a shape to edit it.</p>'; return; }
+    let html = '<div class="prop-row"><label>Type</label><span style="font-family:var(--mono); font-size:11px;">' + s.type + "</span></div>";
+    if (s.type !== "line") {
+      html += '<div class="prop-row"><label>Style</label><select id="propStyle">' +
+        '<option value="outline"' + (s.style === "outline" ? " selected" : "") + ">Outline</option>" +
+        '<option value="filled"' + (s.style === "filled" ? " selected" : "") + ">Filled</option>" +
+        '<option value="both"' + (s.style === "both" ? " selected" : "") + ">Filled + outline</option>" +
+        "</select></div>";
+    }
+    if (s.type === "line" || s.style !== "filled") {
+      html += '<div class="prop-row"><label>Stroke width</label><input id="propStrokeWidth" type="number" step="0.1" min="0.2" value="' + s.strokeWidth + '"></div>';
+    }
+    if (s.type === "rect") {
+      html += '<div class="prop-row"><label>Corner radius</label><input id="propRx" type="number" step="0.1" min="0" value="' + (s.rx || 0) + '"></div>';
+    }
+    if (s.type === "path") {
+      html += '<div class="prop-row"><label>Closed shape</label><input id="propClosed" type="checkbox"' + (s.closed ? " checked" : "") + "></div>" +
+        '<div class="btn-row"><button id="propSmooth" title="Re-runs the Smooth slider setting against this shape’s existing curve">Smooth</button></div>';
+    }
+    if (s.type !== "line") {
+      html += '<div class="prop-row"><label>Rotation°</label><input id="propRotation" type="number" step="1" value="' + Math.round(s.rotation || 0) + '"></div>' +
+        '<div class="prop-row"><label>Skew X°</label><input id="propSkewX" type="number" step="1" value="' + Math.round(s.skewX || 0) + '"></div>' +
+        '<div class="prop-row"><label>Skew Y°</label><input id="propSkewY" type="number" step="1" value="' + Math.round(s.skewY || 0) + '"></div>';
+    }
+    if (s.type !== "line") {
+      html += '<div class="prop-row"><label title="Cuts a hole through every other shape in this icon, live - no merging, everything else stays fully independent and editable. The shape itself shows only as a dashed outline, never as its own visible fill.">Knockout</label><input id="propKnockout" type="checkbox"' + (s.knockout ? " checked" : "") + "></div>";
+    }
+    html += '<div class="btn-row"><button id="propFront">Bring to front</button><button id="propBack">Send to back</button></div>' +
+      '<div class="btn-row"><button id="propDuplicate">Duplicate</button><button id="propDelete" class="danger">Delete</button></div>';
+    if (s.groupId) {
+      html += '<div class="btn-row"><button id="propUngroup">Ungroup</button></div>';
+    }
+    panel.innerHTML = html;
+
+    const sw = document.getElementById("propStrokeWidth");
+    if (sw) sw.addEventListener("change", () => { s.strokeWidth = Math.max(0.2, +sw.value || 1.6); pushHistory(); saveProject(); render(); });
+    const styleSel = document.getElementById("propStyle");
+    if (styleSel) styleSel.addEventListener("change", () => { s.style = styleSel.value; pushHistory(); saveProject(); render(); });
+    const rx = document.getElementById("propRx");
+    if (rx) rx.addEventListener("change", () => { s.rx = Math.max(0, +rx.value || 0); pushHistory(); saveProject(); render(); });
+    const closedBox = document.getElementById("propClosed");
+    if (closedBox) closedBox.addEventListener("change", () => { s.closed = closedBox.checked; pushHistory(); saveProject(); render(); });
+    const smoothBtn = document.getElementById("propSmooth");
+    if (smoothBtn) smoothBtn.addEventListener("click", () => smoothPathShape(s.id));
+    const rotInput = document.getElementById("propRotation");
+    if (rotInput) rotInput.addEventListener("change", () => { s.rotation = (((+rotInput.value || 0) % 360) + 360) % 360; pushHistory(); saveProject(); render(); });
+    // Clamped well short of +/-90 - skewX/skewY use tan() internally, which
+    // blows up approaching a right angle, so this keeps the shape from
+    // stretching to a useless sliver instead of a readable skew.
+    const skewXInput = document.getElementById("propSkewX");
+    if (skewXInput) skewXInput.addEventListener("change", () => { s.skewX = clamp(+skewXInput.value || 0, -80, 80); pushHistory(); saveProject(); render(); });
+    const skewYInput = document.getElementById("propSkewY");
+    if (skewYInput) skewYInput.addEventListener("change", () => { s.skewY = clamp(+skewYInput.value || 0, -80, 80); pushHistory(); saveProject(); render(); });
+    const knockoutBox = document.getElementById("propKnockout");
+    if (knockoutBox) knockoutBox.addEventListener("change", () => { s.knockout = knockoutBox.checked; pushHistory(); saveProject(); render(); });
+    document.getElementById("propFront").addEventListener("click", () => reorderShape(s.id, "front"));
+    document.getElementById("propBack").addEventListener("click", () => reorderShape(s.id, "back"));
+    document.getElementById("propDuplicate").addEventListener("click", duplicateSelected);
+    document.getElementById("propDelete").addEventListener("click", deleteSelected);
+    const ungroupBtn = document.getElementById("propUngroup");
+    if (ungroupBtn) ungroupBtn.addEventListener("click", () => ungroupShape(s.id));
+  }
+
+  function renderBoolPanel() {
+    const panel = document.getElementById("boolPanel");
+    if (boolSet.length === 0) {
+      panel.innerHTML = '<p class="muted">Switch to the Cut tool and tap 2 filled shapes (rect, ellipse or curve) — or Shift-click them on Select. Tap the shape you want to KEEP first, then the shape that bites into it.</p>';
+    } else if (boolSet.length === 1) {
+      panel.innerHTML = '<p class="muted">1 of 2 picked (dotted outline) — this one gets KEPT. Shift-click the shape that should cut into it.</p><div class="btn-row"><button id="boolClear">Clear</button></div>';
+    } else {
+      panel.innerHTML = '<p class="muted">Ready — the dotted shape is kept, the dashed shape cuts into it. Picked them in the wrong order? Hit Swap.</p><div class="btn-row"><button id="boolGo" class="primary">Cut hole</button><button id="boolSwap">Swap</button><button id="boolClear">Clear</button></div>';
+    }
+    const goBtn = document.getElementById("boolGo");
+    if (goBtn) goBtn.addEventListener("click", () => subtractShapes(boolSet[0], boolSet[1]));
+    const swapBtn = document.getElementById("boolSwap");
+    if (swapBtn) swapBtn.addEventListener("click", () => { boolSet = [boolSet[1], boolSet[0]]; render(); });
+    const clearBtn = document.getElementById("boolClear");
+    if (clearBtn) clearBtn.addEventListener("click", () => { boolSet = []; render(); });
+  }
+
+  function renderPreview() {
+    const markup = shapesMarkup(shapes());
+    const vb = "0 0 " + project.viewBox.w + " " + project.viewBox.h;
+    ["22", "56", "96"].forEach((size) => {
+      const box = document.getElementById("preview-" + size);
+      box.setAttribute("viewBox", vb);
+      box.innerHTML = markup;
+    });
+    const floatBox = document.getElementById("preview-float");
+    if (floatBox) {
+      floatBox.setAttribute("viewBox", vb);
+      floatBox.innerHTML = markup;
+    }
+  }
+
+  // Export-only cleanup - none of this touches the shapes array or how
+  // the live canvas/preview render, only the text shown/downloaded here,
+  // so it can't ever drift the editor out of sync with what you see.
+  // idPrefix keeps mask/clip ids collision-free across separate icons
+  // when exporting "All icons" into one shared document.
+  function optimizeExportMarkup(markup, idPrefix) {
+    const doc = new DOMParser().parseFromString('<svg xmlns="' + SVGNS + '">' + markup + "</svg>", "image/svg+xml");
+    if (doc.querySelector("parsererror")) return markup;
+    const root = doc.documentElement;
+    // 0. applyKnockoutMask's safety-margin rect is sized for LIVE
+    // editing (shapes can get dragged anywhere, including off-canvas,
+    // so it's deliberately oversized at 3x the viewBox). A finished
+    // export is a much safer bet to stay near the icon's own bounds -
+    // tighter margin, same correctness, shorter numbers repeated 6
+    // times (mask x/y/w/h + rect x/y/w/h).
+    const vb = project.viewBox;
+    Array.from(root.querySelectorAll("mask")).forEach((maskEl) => {
+      const mx = fmt(-vb.w * 0.25), my = fmt(-vb.h * 0.25), mw = fmt(vb.w * 1.5), mh = fmt(vb.h * 1.5);
+      maskEl.setAttribute("x", mx); maskEl.setAttribute("y", my);
+      maskEl.setAttribute("width", mw); maskEl.setAttribute("height", mh);
+      const baseRect = maskEl.querySelector("rect");
+      if (baseRect) { baseRect.setAttribute("x", mx); baseRect.setAttribute("y", my); baseRect.setAttribute("width", mw); baseRect.setAttribute("height", mh); }
+    });
+    // 1. rotate(r cx cy) translate(cx cy) skewX/Y(a) translate(-cx -cy) -
+    // this tool's own transformAttr always emits exactly this shape
+    // whenever both rotation and skew are set - is mathematically just
+    // "skew, then rotate, both about (cx,cy)". Recentering the shape's
+    // own coordinates onto (cx,cy) turns that into translate(cx cy)
+    // rotate(r) skewX/Y(a) instead: same visual result, 2 fewer
+    // transform functions and no repeated center coordinates. Only
+    // rewritten when the string matches this exact known shape (skips
+    // anything hand-edited or otherwise irregular, rather than guess).
+    const RT_PATTERN = /^rotate\(([-\d.]+) ([-\d.]+) ([-\d.]+)\) translate\(([-\d.]+) ([-\d.]+)\) (skewX|skewY)\(([-\d.]+)\) translate\(([-\d.]+) ([-\d.]+)\)$/;
+    Array.from(root.querySelectorAll("[transform]")).forEach((el) => {
+      const t = el.getAttribute("transform");
+      const m = t && t.match(RT_PATTERN);
+      if (!m) return;
+      const rot = m[1], cx = +m[2], cy = +m[3], skewFn = m[6], skewDeg = m[7];
+      const tag = el.tagName.toLowerCase();
+      if (tag === "rect") {
+        el.setAttribute("x", fmt(+el.getAttribute("x") - cx));
+        el.setAttribute("y", fmt(+el.getAttribute("y") - cy));
+      } else if (tag === "ellipse") {
+        el.setAttribute("cx", fmt(+el.getAttribute("cx") - cx));
+        el.setAttribute("cy", fmt(+el.getAttribute("cy") - cy));
+      } else if (tag === "path") {
+        el.setAttribute("d", translatePathD(el.getAttribute("d"), -cx, -cy));
+      } else {
+        return; // unknown element shape - leave its transform exactly as-is
+      }
+      el.setAttribute("transform", "translate(" + fmt(cx) + " " + fmt(cy) + ") rotate(" + rot + ") " + skewFn + "(" + skewDeg + ")");
+    });
+    // 2. same-direction <line>s that share a style are just as valid as
+    // one multi-subpath <path> - one element instead of N, and the
+    // "M x y L x y" pairs are shorter than a full <line> tag each.
+    const lineGroups = new Map();
+    Array.from(root.children).forEach((el) => {
+      if (el.tagName.toLowerCase() !== "line") return;
+      const key = (el.getAttribute("stroke") || "") + "|" + (el.getAttribute("stroke-width") || "") + "|" + (el.getAttribute("stroke-linecap") || "");
+      if (!lineGroups.has(key)) lineGroups.set(key, []);
+      lineGroups.get(key).push(el);
+    });
+    lineGroups.forEach((els, key) => {
+      if (els.length < 2) return;
+      const [stroke, strokeWidth, linecap] = key.split("|");
+      const d = els.map((el) => "M" + el.getAttribute("x1") + " " + el.getAttribute("y1") + "L" + el.getAttribute("x2") + " " + el.getAttribute("y2")).join(" ");
+      const path = doc.createElementNS(SVGNS, "path");
+      path.setAttribute("fill", "none");
+      if (stroke) path.setAttribute("stroke", stroke);
+      if (strokeWidth) path.setAttribute("stroke-width", strokeWidth);
+      if (linecap) path.setAttribute("stroke-linecap", linecap);
+      root.insertBefore(path, els[0]);
+      els.forEach((el) => root.removeChild(el));
+      path.setAttribute("d", d);
+    });
+    // 3. this tool's own generated ids (uid(), for mask/clipPath) are
+    // long random strings with no meaning outside this document -
+    // short sequential ones reference-check identically and take far
+    // fewer bytes, repeated at every url(#...) call site.
+    const idMap = {};
+    let n = 0;
+    Array.from(root.querySelectorAll("[id]")).forEach((el) => {
+      const old = el.getAttribute("id");
+      const short = (idPrefix || "") + "o" + n++;
+      idMap[old] = short;
+      el.setAttribute("id", short);
+    });
+    Array.from(root.querySelectorAll("[mask],[clip-path]")).forEach((el) => {
+      ["mask", "clip-path"].forEach((attr) => {
+        const v = el.getAttribute(attr);
+        const m = v && v.match(/^url\(#(.+)\)$/);
+        if (m && idMap[m[1]]) el.setAttribute(attr, "url(#" + idMap[m[1]] + ")");
+      });
+    });
+    // 4. fill/stroke attrs identical across every direct child (common
+    // whenever nothing in the icon needs a different style) belong on
+    // one wrapping <g>, not repeated on each one.
+    const STYLE_ATTRS = ["fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"];
+    const paintable = Array.from(root.children).filter((el) => !["mask", "clippath", "defs"].includes(el.tagName.toLowerCase()));
+    if (paintable.length >= 2) {
+      const common = {};
+      STYLE_ATTRS.forEach((attr) => {
+        const first = paintable[0].getAttribute(attr);
+        if (first != null && paintable.every((el) => el.getAttribute(attr) === first)) common[attr] = first;
+      });
+      if (Object.keys(common).length) {
+        const g = doc.createElementNS(SVGNS, "g");
+        Object.keys(common).forEach((attr) => { g.setAttribute(attr, common[attr]); });
+        paintable.forEach((el) => { Object.keys(common).forEach((attr) => el.removeAttribute(attr)); g.appendChild(el); });
+        root.appendChild(g);
+      }
+    }
+    // 5. path `d` spacing: a command letter unambiguously starts a new
+    // token, so no space is required around one - only between two bare
+    // numbers is a separator still needed. Safe, mechanical, no
+    // coordinate values touched.
+    Array.from(root.querySelectorAll("path[d]")).forEach((el) => {
+      el.setAttribute("d", el.getAttribute("d").replace(/\s*([MLCQAZ])\s*/g, "$1").trim());
+    });
+    return new XMLSerializer().serializeToString(root).replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, "");
+  }
+  // "Standalone" export mode bakes an explicit color into fill/stroke
+  // in place of currentColor - every literal occurrence of the word
+  // "currentColor" this tool ever writes is exactly that CSS keyword
+  // (never inside a path's own numeric d data, an id, or anything else
+  // that could collide), so a plain text replace is safe and doesn't
+  // need DOM work. currentColor only resolves through CSS inheritance,
+  // which only exists when an SVG is inlined directly into a page - as
+  // an <img src>, a CSS background-image, or in most older/standalone
+  // SVG viewers there's no such context, so currentColor quietly
+  // renders black (or not at all) instead of the intended color. Baking
+  // in a real color makes the file self-contained regardless of how or
+  // where it's opened - the actual ask behind "export like Illustrator
+  // does, viewable in older browsers".
+  function bakeStandaloneColor(text) {
+    const input = document.getElementById("standaloneColor");
+    const color = (input && input.value) || "#000000";
+    return text.replace(/currentColor/g, color);
+  }
+  // Raw, unoptimized markup - kept fast and cheap since this runs on
+  // every render() (every drag frame); the DOM-heavy optimizer above
+  // only runs on demand (Copy/Download clicks), not per frame.
+  function rawExportMarkup() {
+    const modeInput = document.querySelector('input[name="exportMode"]:checked');
+    const mode = modeInput ? modeInput.value : "active";
+    if (mode === "all") {
+      return "<defs>\n" + Object.keys(project.icons).map((key) => {
+        const icon = project.icons[key];
+        return '<symbol id="i-' + key.toLowerCase() + '" viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '">\n  ' +
+          shapesMarkup(icon.shapes) + "\n</symbol>";
+      }).join("\n\n") + "\n</defs>";
+    }
+    const raw = shapesMarkup(shapes());
+    return mode === "standalone" ? bakeStandaloneColor(raw) : raw;
+  }
+  // Same optimizer, applied per-<symbol> so mask/clip ids stay unique
+  // across icons when exporting "All icons" into one shared document.
+  function optimizedExportMarkup() {
+    const modeInput = document.querySelector('input[name="exportMode"]:checked');
+    const mode = modeInput ? modeInput.value : "active";
+    if (mode === "all") {
+      return "<defs>\n" + Object.keys(project.icons).map((key) => {
+        const icon = project.icons[key];
+        return '<symbol id="i-' + key.toLowerCase() + '" viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '">\n  ' +
+          optimizeExportMarkup(shapesMarkup(icon.shapes), key + "-") + "\n</symbol>";
+      }).join("\n\n") + "\n</defs>";
+    }
+    const opt = optimizeExportMarkup(shapesMarkup(shapes()), "");
+    return mode === "standalone" ? bakeStandaloneColor(opt) : opt;
+  }
+  function renderExport() {
+    // Cheap/raw wrap (not optimizeExportMarkup - this runs every
+    // render(), every drag frame) so the visible textarea is always a
+    // real, complete, pasteable SVG document - not just the inner
+    // fragment - even before Copy/Download ever run once.
+    document.getElementById("exportText").value = wrapSvgDocument(rawExportMarkup(), currentExportMode()).full;
+  }
+
+  function render() {
+    boolSet = boolSet.filter((id) => !!getShapeById(id));
+    multiSelect = multiSelect.filter((id) => !!getShapeById(id));
+    const { w, h } = project.viewBox;
+    svgRoot.setAttribute("viewBox", "0 0 " + w + " " + h);
+    svgRoot.setAttribute("width", w * zoom);
+    svgRoot.setAttribute("height", h * zoom);
+    document.getElementById("zoomLabel").textContent = zoom + "px / unit";
+    document.getElementById("vbW").value = w;
+    document.getElementById("vbH").value = h;
+    renderGrid();
+    renderShapesLayer();
+    renderUI();
+    renderIconList();
+    renderProperties();
+    renderBoolPanel();
+    renderPreview();
+    renderExport();
+  }
+
+  setTool("select");
+  render();
+})();
+</script>
+
