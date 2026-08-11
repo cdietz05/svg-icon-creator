@@ -423,7 +423,11 @@
   #gridLayer line { stroke: var(--border); stroke-width: 0.05; }
   #gridLayer line.major { stroke-width: 0.08; opacity: 0.9; }
   #shapesLayer { color: var(--text); }
-  #shapesLayer path, #shapesLayer rect, #shapesLayer ellipse, #shapesLayer line { vector-effect: non-scaling-stroke; }
+  /* No non-scaling-stroke here (removed) - stroke-width is stored in the
+     icon's own viewBox units, same as the export, so it should scale
+     with zoom exactly like it will in the real exported SVG. A fixed
+     screen-pixel stroke made every line look the same thin weight at
+     any zoom, hiding the actual relative thickness being set. */
   /* Always-on marker for knockout shapes (never rendered as real fill -
      see applyKnockoutMask) so they stay findable/selectable on canvas
      even though they contribute no visible pixels of their own. Danger
@@ -1280,42 +1284,51 @@
     const cross = (a.x - prev.x) * (next.y - a.y) - (a.y - prev.y) * (next.x - a.x);
     return (cross >= 0) === (polygonWindingSign(anchors, closed) >= 0);
   }
+  // cornerBisector's own formula only points into the true interior for
+  // a convex corner - flip it for a reflex/concave one so callers always
+  // get a vector that genuinely points into the shape either way.
+  function trueInteriorBisector(anchors, i, closed) {
+    const bis = cornerBisector(anchors, i, closed);
+    const convex = isConvexCorner(anchors, i, closed);
+    return { x: convex ? bis.x : -bis.x, y: convex ? bis.y : -bis.y, edgeMin: bis.edgeMin, convex };
+  }
   // Where the little Corner Radius glyph itself sits - a FIXED small
-  // offset from the corner along its bisector, deliberately NOT
-  // proportional to the radius currently in effect (unlike an earlier
-  // version of this, cornerHandlePos, which put the handle right at the
-  // fillet's own tip). That made the handle creep toward the shape's
-  // real resize/anchor handles as a corner got more rounded, and once
-  // it landed close to one, whichever was on top ate the click. Staying
-  // put means only the fillet itself moves as the radius changes - the
-  // little control glyph next to the corner never does.
+  // offset from the corner along the TRUE interior bisector, deliberately
+  // NOT proportional to the radius currently in effect (unlike an
+  // earlier version of this, cornerHandlePos, which put the handle right
+  // at the fillet's own tip - that made the handle creep toward the
+  // shape's real resize/anchor handles as a corner got more rounded).
+  // Pushed noticeably farther out than a plain handle would sit (see the
+  // 0.55 edge fraction below, well past where the resize/anchor handles
+  // themselves live right at the vertex) so it's not an easy accidental
+  // touch target next to them. Staying at a fixed distance also means
+  // only the fillet itself moves as the radius changes - this glyph
+  // never does.
   function cornerRadiusGlyphPos(anchors, i, closed) {
     const a = anchors[i];
-    const bis = cornerBisector(anchors, i, closed);
-    const desired = clamp(14 / zoom, 0.3, 3.6);
-    const dist = Math.min(desired, Math.max(0.14, bis.edgeMin * 0.4));
-    // Convex: negate the bisector so the glyph sits OUTSIDE the shape's
-    // own fill instead of inside it. Reflex/concave: the bisector is
-    // already pointing away from the interior (see isConvexCorner), so
-    // negating it again would put the glyph right back inside the
-    // notch - use it as-is instead. Either way this lands in the empty,
-    // non-filled space next to the corner, never on top of the shape.
-    const sign = isConvexCorner(anchors, i, closed) ? -1 : 1;
-    return { x: a.x + bis.x * dist * sign, y: a.y + bis.y * dist * sign, bis, dist, sign };
+    const bis = trueInteriorBisector(anchors, i, closed);
+    const desired = clamp(18 / zoom, 0.45, 4.2);
+    const dist = Math.min(desired, Math.max(0.2, bis.edgeMin * 0.55));
+    // Always outside the shape's own fill (negate the true interior
+    // bisector), regardless of convex or reflex.
+    return { x: a.x - bis.x * dist, y: a.y - bis.y * dist, bis, dist };
   }
-  // A short curved stroke (not a filled dot, see the .handle-radius CSS)
-  // bowed back toward the corner so it actually reads as a rounding cue.
+  // A short curved stroke (not a filled dot, see the .handle-radius CSS).
+  // The bulge direction is the actual visual tell for corner type: a
+  // convex corner's real fillet bulges toward the vertex (cutting the
+  // point off), so this bows the same way; a reflex/concave corner's
+  // real fillet bulges away from the vertex (rounding a notch pushes the
+  // curve back into the shape, not toward the point), so this bows the
+  // opposite way - two genuinely different-looking glyphs, not just two
+  // different positions.
   function cornerRadiusGlyphMarkup(g, i) {
     const bis = g.bis;
     const px = -bis.y, py = bis.x;
-    const half = clamp(4 / zoom, 0.12, g.dist * 0.8);
+    const half = clamp(4.5 / zoom, 0.14, g.dist * 0.7);
     const p1x = g.x + px * half, p1y = g.y + py * half;
     const p2x = g.x - px * half, p2y = g.y - py * half;
-    const bow = half * 0.9;
-    // Bow back toward the corner - opposite of whichever way g itself
-    // was pushed out (see cornerRadiusGlyphPos's sign), so the arc
-    // always curves toward the vertex it belongs to either way.
-    const ctrlx = g.x - bis.x * bow * g.sign, ctrly = g.y - bis.y * bow * g.sign;
+    const bow = half * 0.9 * (bis.convex ? 1 : -1);
+    const ctrlx = g.x + bis.x * bow, ctrly = g.y + bis.y * bow;
     return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR() * 1.3) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
       '<path d="M ' + fmt(p1x) + ' ' + fmt(p1y) + ' Q ' + fmt(ctrlx) + ' ' + fmt(ctrly) + ' ' + fmt(p2x) + ' ' + fmt(p2y) + '" class="handle-radius"/>';
   }
@@ -2369,6 +2382,17 @@
     historyIndex = history.length - 1;
   }
   function undo() {
+    // Mid-draft on the Curve/Freeform tool - Ctrl+Z (or the Undo button)
+    // pops the last placed point instead of reaching into the project's
+    // history stack, since the in-progress shape isn't committed there
+    // yet at all. Down to a single remaining point, "undo" cancels the
+    // whole draft rather than leaving a floating lone point behind.
+    if (penDraft && (tool === "curve" || tool === "polygon")) {
+      if (penDraft.anchors.length > 1) { penDraft.anchors.pop(); penPendingDrag = null; }
+      else { penDraft = null; penPendingDrag = null; }
+      render();
+      return;
+    }
     if (historyIndex <= 0) return;
     historyIndex--;
     project = JSON.parse(history[historyIndex]);
@@ -3702,6 +3726,7 @@
   document.getElementById("gridStepInput").addEventListener("change", (e) => {
     gridStep = clamp(+e.target.value || 0.5, 0.05, 8);
     e.target.value = gridStep;
+    renderGrid();
   });
   document.getElementById("defaultStrokeWidth").addEventListener("change", (e) => { defaultStrokeWidth = Math.max(0.2, +e.target.value || 1.6); });
   document.getElementById("freehandSmoothing").addEventListener("input", (e) => {
@@ -4143,7 +4168,11 @@
       // .multi-outline/.bool-outline (also built on shapeOutlineMarkup),
       // this one doesn't correct for the shape's own rotation, matching
       // those existing outline indicators' same accepted limitation.
-      parts.push(shapeOutlineMarkup(s, "selected-highlight"));
+      // Suppressed while actively dragging a Corner Radius handle - that
+      // translucent overlay was covering up the exact edge you're
+      // trying to watch move, defeating the point of a live preview.
+      const draggingRadius = dragMode === "handle" && dragHandle && dragHandle.indexOf("radius-") === 0;
+      if (!draggingRadius) parts.push(shapeOutlineMarkup(s, "selected-highlight"));
       if (s.type === "line") {
         parts.push(handleMarkup(s.x1, s.y1, "p1"));
         parts.push(handleMarkup(s.x2, s.y2, "p2"));
@@ -4258,8 +4287,20 @@
       parts = parts.concat(gridLineFamily(30, spacing, w, h, 4));
       parts = parts.concat(gridLineFamily(-30, spacing, w, h, 4));
     } else {
-      for (let x = 0; x <= w; x += 1) parts.push('<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + h + '" class="' + (x % 4 === 0 ? "major" : "") + '"/>');
-      for (let y = 0; y <= h; y += 1) parts.push('<line x1="0" y1="' + y + '" x2="' + w + '" y2="' + y + '" class="' + (y % 4 === 0 ? "major" : "") + '"/>');
+      // Drawn at the actual Grid Scale (gridStep) so the visible grid
+      // matches what Snap actually snaps to, capped so a very fine
+      // scale can't flood the SVG with lines on every pan/zoom frame -
+      // renderGrid runs inside the same fast path zoomAt uses (see
+      // renderCanvasTransform).
+      const MAX_LINES_PER_AXIS = 200;
+      const stepX = Math.max(gridStep, w / MAX_LINES_PER_AXIS);
+      const stepY = Math.max(gridStep, h / MAX_LINES_PER_AXIS);
+      const majorEveryX = Math.max(1, Math.round(1 / stepX));
+      const majorEveryY = Math.max(1, Math.round(1 / stepY));
+      let n = 0;
+      for (let x = 0; x <= w + 1e-6; x += stepX, n++) parts.push('<line x1="' + fmt(x) + '" y1="0" x2="' + fmt(x) + '" y2="' + fmt(h) + '" class="' + (n % majorEveryX === 0 ? "major" : "") + '"/>');
+      n = 0;
+      for (let y = 0; y <= h + 1e-6; y += stepY, n++) parts.push('<line x1="0" y1="' + fmt(y) + '" x2="' + fmt(w) + '" y2="' + fmt(y) + '" class="' + (n % majorEveryY === 0 ? "major" : "") + '"/>');
     }
     g.innerHTML = parts.join("");
   }
