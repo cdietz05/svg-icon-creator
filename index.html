@@ -2,14 +2,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
 <style>
+  /* Genuinely neutral grays (R/G/B within a point or two of each
+     other) instead of the previous palette's blue/navy-shifted darks
+     (e.g. the old dark --bg #10131a carries +10 blue over red - subtle
+     alone, but compounded across bg/surface/surface-2/surface-3/border
+     it reads as an unmistakable blue cast over the whole app). --accent
+     is deliberately still blue in both themes - that's an intentional
+     UI accent color (selection/primary actions), not the neutral chrome
+     the "blue tinted" complaint was actually about. */
   :root {
-    --bg: #f6f7f8;
+    --bg: #f5f5f6;
     --surface: #ffffff;
-    --surface-2: #eef0f3;
-    --surface-3: #e2e5ea;
-    --border: #dbdfe4;
-    --text: #14171c;
-    --text-muted: #62676f;
+    --surface-2: #eeeeef;
+    --surface-3: #e2e2e4;
+    --border: #dcdcdf;
+    --text: #18181a;
+    --text-muted: #67676b;
     --accent: #2f5fd6;
     --accent-ink: #ffffff;
     --accent-2: #b8720f;
@@ -22,13 +30,13 @@
 
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #10131a;
-      --surface: #181c25;
-      --surface-2: #1f2430;
-      --surface-3: #2a303e;
-      --border: #313848;
-      --text: #edeff3;
-      --text-muted: #929aa8;
+      --bg: #131314;
+      --surface: #1b1b1d;
+      --surface-2: #232325;
+      --surface-3: #2d2d30;
+      --border: #3a3a3e;
+      --text: #f0f0f1;
+      --text-muted: #97979c;
       --accent: #6f9bff;
       --accent-ink: #0d1220;
       --accent-2: #ffb454;
@@ -38,13 +46,13 @@
   }
 
   :root[data-theme="dark"] {
-    --bg: #10131a;
-    --surface: #181c25;
-    --surface-2: #1f2430;
-    --surface-3: #2a303e;
-    --border: #313848;
-    --text: #edeff3;
-    --text-muted: #929aa8;
+    --bg: #131314;
+    --surface: #1b1b1d;
+    --surface-2: #232325;
+    --surface-3: #2d2d30;
+    --border: #3a3a3e;
+    --text: #f0f0f1;
+    --text-muted: #97979c;
     --accent: #6f9bff;
     --accent-ink: #0d1220;
     --accent-2: #ffb454;
@@ -145,11 +153,38 @@
   header.top .sub { font-size: 12px; color: var(--text-muted); margin-left: auto; }
 
   .body-grid {
+    position: relative;
     display: grid;
     grid-template-columns: 230px 1fr 300px;
     grid-template-areas: "left canvas right";
     min-height: 0;
   }
+  /* Small rounded tabs that sit right on the seam between a sidebar
+     and the canvas, instead of living inside the toolbar/either
+     sidebar's own content - a dedicated layout control reads cleaner
+     as its own floating handle than as just another button crowded in
+     among drawing tools. Absolutely positioned against .body-grid
+     itself (not the sidebar it toggles - aside.left/right both clip
+     horizontal overflow via their own overflow-y:auto, which would
+     have cut off anything poking past their edge), so its position is
+     driven by the two fixed column widths above (230px/300px) via the
+     .hide-left/.hide-right class swap - same mechanism already used
+     for the grid-template-columns collapse itself, just mirrored here
+     for the tab's own left/right offset. */
+  .sidebar-toggle-tab {
+    position: absolute; top: 14px; z-index: 20;
+    width: 20px; height: 30px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+    color: var(--text-muted); cursor: pointer; font-size: 11px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    transition: left 0.15s ease, right 0.15s ease, background 0.15s ease, color 0.15s ease;
+  }
+  .sidebar-toggle-tab:hover { background: var(--surface-2); color: var(--text); border-color: var(--accent-2); }
+  .sidebar-toggle-tab-left { left: 222px; }
+  .body-grid.hide-left .sidebar-toggle-tab-left { left: 4px; }
+  .sidebar-toggle-tab-right { right: 292px; }
+  .body-grid.hide-right .sidebar-toggle-tab-right { right: 4px; }
 
   aside.left, aside.right {
     background: var(--surface);
@@ -174,6 +209,10 @@
   /* Collapsing the icon-list pane to reclaim canvas space. */
   .body-grid.hide-left aside.left { display: none; }
   .body-grid.hide-left { grid-template-columns: 0 1fr 300px; }
+  /* Same, mirrored, for the Properties/Export sidebar. */
+  .body-grid.hide-right aside.right { display: none; }
+  .body-grid.hide-right { grid-template-columns: 230px 1fr 0; }
+  .body-grid.hide-left.hide-right { grid-template-columns: 0 1fr 0; }
 
   /* iPad portrait / narrow window: stack the three columns instead of
      sitting them side by side, and cap the two drawers so the canvas keeps
@@ -185,6 +224,12 @@
       grid-template-areas: "left" "canvas" "right";
     }
     .body-grid.hide-left { grid-template-rows: 0 minmax(240px, 1fr) auto; }
+    .body-grid.hide-right { grid-template-columns: 1fr; grid-template-rows: auto minmax(240px, 1fr) 0; }
+    .body-grid.hide-left.hide-right { grid-template-rows: 0 minmax(240px, 1fr) 0; }
+    /* No side columns to dock a tab's edge against once stacked -
+       pin both to the top corners of the whole area instead. */
+    .sidebar-toggle-tab-left, .body-grid.hide-left .sidebar-toggle-tab-left { left: 4px; }
+    .sidebar-toggle-tab-right, .body-grid.hide-right .sidebar-toggle-tab-right { right: 4px; }
     aside.left { max-height: 220px; border-right: none; border-bottom: 1px solid var(--border); }
     aside.right { max-height: 42vh; border-left: none; border-top: 1px solid var(--border); }
     .canvas-wrap { min-height: 300px; }
@@ -514,21 +559,42 @@
 
   /* Docked state: #floatingToolbarBody sits here instead, styled to
      look like a plain top-of-canvas bar again - :empty collapses it to
-     nothing (no stray border/padding) once the body's been moved out
-     into the floating panel above. */
-  .canvas-topbar { display: flex; align-items: flex-start; border-bottom: 1px solid var(--border); background: var(--surface); }
-  .canvas-topbar-toggle { flex: none; align-self: center; margin: 0 2px 0 6px; }
-  .toolbar-dock { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap; }
-  .toolbar-dock:empty { padding: 0; }
+     nothing (no stray border/padding/line) once the body's been moved
+     out into the floating panel above. */
+  .toolbar-dock {
+    display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .toolbar-dock:empty { padding: 0; border-bottom: none; }
+  .theme-toggle-btn {
+    flex: none; margin-left: 12px; width: 30px; height: 30px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; border-radius: 8px;
+  }
 </style>
+<script>
+  // Applied synchronously, before the rest of the page paints, so an
+  // explicit saved choice never flashes the OTHER theme for one frame
+  // first (the CSS alone only reacts to prefers-color-scheme - it has
+  // no way to know about a saved override until this runs).
+  (function () {
+    try {
+      var t = localStorage.getItem("svg-icon-creator-theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    } catch (e) { /* localStorage unavailable */ }
+  })();
+</script>
 
 <div class="app">
   <header class="top">
     <h1>SVG Icon Creator</h1>
     <span class="sub">Autosaves to this browser · export raw SVG when ready</span>
+    <button id="themeToggleBtn" class="theme-toggle-btn" title="Switch theme">☾</button>
   </header>
 
   <div class="body-grid">
+    <button id="toggleLeftBtn" class="sidebar-toggle-tab sidebar-toggle-tab-left" title="Hide/show the icon list">◀</button>
+    <button id="toggleRightBtn" class="sidebar-toggle-tab sidebar-toggle-tab-right" title="Hide/show the Properties panel">▶</button>
     <aside class="left">
       <div class="panel-head">Icons</div>
       <div id="iconList"></div>
@@ -563,10 +629,7 @@
     </aside>
 
     <div class="canvas-wrap">
-      <div class="canvas-topbar">
-        <button id="toggleLeftBtn" class="canvas-topbar-toggle" title="Hide/show the icon list">◀</button>
-        <div class="toolbar-dock" id="toolbarDock"></div>
-      </div>
+      <div class="toolbar-dock" id="toolbarDock"></div>
       <div class="hint">
         <b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> finishes, click the start point to close) · <b>F</b> freehand (just draw, it's smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · a selected shape's top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo
       </div>
@@ -708,6 +771,42 @@
   "use strict";
   const SVGNS = "http://www.w3.org/2000/svg";
   const STORAGE_KEY = "cinder-icon-editor-project-v1";
+
+  // Light/dark toggle - explicit choice persists (survives OS theme
+  // changes too, unlike the CSS-only prefers-color-scheme fallback);
+  // clearing localStorage or never touching this control at all just
+  // goes back to following the OS setting. The actual application of
+  // a SAVED choice on load happens synchronously in the small <script>
+  // right after <style>, before this runs - this only wires the button
+  // and keeps its own icon in sync afterward.
+  const THEME_KEY = "svg-icon-creator-theme";
+  function themeIsDark() {
+    const explicit = document.documentElement.getAttribute("data-theme");
+    if (explicit === "dark") return true;
+    if (explicit === "light") return false;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function syncThemeToggleIcon() {
+    const btn = document.getElementById("themeToggleBtn");
+    if (!btn) return;
+    const dark = themeIsDark();
+    btn.textContent = dark ? "☀" : "☾";
+    btn.title = dark ? "Switch to light mode" : "Switch to dark mode";
+  }
+  document.getElementById("themeToggleBtn").addEventListener("click", () => {
+    const next = themeIsDark() ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* storage unavailable */ }
+    syncThemeToggleIcon();
+  });
+  // No explicit override yet (data-theme unset) means the page is
+  // still following the OS's own light/dark setting - the CSS media
+  // query already repaints on its own when that changes, but this
+  // button's icon has no equivalent unless it's told to re-check too.
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncThemeToggleIcon);
+  }
+  syncThemeToggleIcon();
 
   // No longer used by createDefaultProject (see DEFAULT_ICON_SEED below)
   // - kept in place, not deleted, since it's real hand-drawn work still
@@ -2143,6 +2242,24 @@
   let marqueeRect = null;
   let marqueeMoved = false;
   let freehandPoints = null; // raw {x,y} samples while drawing with the Freehand tool
+  // Two-finger touch: pinch to zoom, drag the midpoint to pan - works
+  // regardless of which tool is active (a single finger still does
+  // whatever the active tool does, unchanged). Native pinch/pan can't
+  // be used directly since #artboard/#canvas-viewport are deliberately
+  // touch-action:none (so a single-finger drawing stroke isn't stolen
+  // into a page scroll - see the Apple Pencil fix elsewhere in this
+  // file) - this reconstructs the gesture by hand from raw Pointer
+  // Events instead.
+  let activeTouchPointers = new Map(); // pointerId -> {x, y} in client coords
+  let pinchState = null; // {startDist, startZoom, startMid, startScrollLeft, startScrollTop}
+  function pinchDistance() {
+    const pts = Array.from(activeTouchPointers.values());
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+  function pinchMidpoint() {
+    const pts = Array.from(activeTouchPointers.values());
+    return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  }
   let zoom = 18;
   let snapEnabled = true;
   let gridStep = 0.5;
@@ -2225,6 +2342,27 @@
   // ---------- pointer interaction ----------
   function onPointerDown(evt) {
     if (evt.button !== 0) return;
+    if (evt.pointerType === "touch") {
+      activeTouchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+      if (activeTouchPointers.size === 2) {
+        // A second finger landing mid-gesture means the intent just
+        // shifted to navigating the view, not whatever the active tool
+        // was about to do with the first finger alone - cancel that
+        // cleanly rather than leaving a half-finished draft behind.
+        cancelActiveDrag();
+        if (penDraft) { penDraft = null; penPendingDrag = null; }
+        freehandPoints = null;
+        pinchState = {
+          startDist: pinchDistance(), startZoom: zoom, startMid: pinchMidpoint(),
+          startScrollLeft: document.getElementById("canvasViewport").scrollLeft,
+          startScrollTop: document.getElementById("canvasViewport").scrollTop
+        };
+        render();
+        evt.preventDefault();
+        return;
+      }
+      if (activeTouchPointers.size > 2) { evt.preventDefault(); return; }
+    }
     if (tool === "pan") {
       // touch-action: pan-x pan-y (see #artboard.pan-active) only makes
       // the browser hand real TOUCH-drag gestures their native scroll
@@ -2367,6 +2505,19 @@
   }
 
   function onPointerMove(evt) {
+    if (evt.pointerType === "touch" && activeTouchPointers.has(evt.pointerId)) {
+      activeTouchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+      if (pinchState && activeTouchPointers.size === 2) {
+        const dist = pinchDistance(), mid = pinchMidpoint();
+        zoom = clamp(pinchState.startZoom * (dist / pinchState.startDist), 6, 64);
+        const viewport = document.getElementById("canvasViewport");
+        viewport.scrollLeft = pinchState.startScrollLeft - (mid.x - pinchState.startMid.x);
+        viewport.scrollTop = pinchState.startScrollTop - (mid.y - pinchState.startMid.y);
+        render();
+        evt.preventDefault();
+        return;
+      }
+    }
     if (dragMode === "pan") {
       // Raw screen pixels, 1:1 with the mouse - matches how the native
       // touch-drag scroll (the touch-action CSS path) already feels.
@@ -2522,7 +2673,19 @@
     }
   }
 
-  function onPointerUp() {
+  function onPointerUp(evt) {
+    if (evt && evt.pointerType === "touch" && activeTouchPointers.has(evt.pointerId)) {
+      activeTouchPointers.delete(evt.pointerId);
+      if (pinchState) {
+        // Lifting one finger of a pinch just ends the gesture outright,
+        // rather than letting the remaining finger fall through into a
+        // brand-new single-pointer tool action mid-air - avoids a
+        // surprise shape/drag starting from wherever that finger
+        // happened to still be resting.
+        if (activeTouchPointers.size < 2) pinchState = null;
+        return;
+      }
+    }
     if (dragMode === "pan") { dragMode = null; return; }
     if (dragMode === "draw" && draftShape) {
       const tooSmall =
@@ -2890,6 +3053,11 @@
     const hidden = grid.classList.toggle("hide-left");
     document.getElementById("toggleLeftBtn").textContent = hidden ? "▶" : "◀";
   });
+  document.getElementById("toggleRightBtn").addEventListener("click", () => {
+    const grid = document.querySelector(".body-grid");
+    const hidden = grid.classList.toggle("hide-right");
+    document.getElementById("toggleRightBtn").textContent = hidden ? "◀" : "▶";
+  });
   // Drag-to-resize for every right-sidebar section (Properties/
   // Boolean/Preview/Import/Export) - each divider's data-resize-target
   // is the id of the .panel-body it sits directly below. Sets an
@@ -2973,10 +3141,11 @@
   // than duplicated - appendChild relocates a node in place, so every
   // button's event listener (wired once, below/elsewhere) keeps
   // working regardless of which shell currently holds it. The ◀
-  // sidebar-collapse arrow deliberately lives OUTSIDE this shared body,
-  // directly in .canvas-topbar - it stays put at the top of the canvas
-  // even when the rest of the toolbar floats off elsewhere, since
-  // hiding the icon list is a layout control, not a drawing tool.
+  // sidebar-collapse arrow deliberately lives OUTSIDE this shared body
+  // entirely now, as its own small tab on the sidebar seam (see
+  // .sidebar-toggle-tab) - it stays put even when the rest of the
+  // toolbar floats off elsewhere, since hiding the icon list is a
+  // layout control, not a drawing tool.
   // Dock state/position/size/collapsed are all session-only, same as
   // the floating preview - resets on reload.
   (function setUpFloatingToolbar() {
