@@ -549,7 +549,7 @@
      size) for a genuinely smaller footprint when undocked and the
      secondary controls aren't needed right now. */
   .floating-toolbar {
-    position: fixed; top: 70px; left: 250px; width: 660px; max-width: 90vw;
+    position: fixed; top: 70px; left: 250px; width: 730px; max-width: 90vw;
     min-width: 280px; min-height: 120px; max-height: 90vh;
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
@@ -644,7 +644,7 @@
     <div class="canvas-wrap">
       <div class="toolbar-dock" id="toolbarDock"></div>
       <div class="hint">
-        <b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> finishes, click the start point to close) · <b>F</b> freehand (just draw, it's smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · a selected shape's top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo
+        <b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> finishes, click the start point to close) · <b>S</b> straight (same as Curve but every click is a plain corner - dragging has no effect, no bezier curves) · <b>F</b> freehand (just draw, it's smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · a selected shape's top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo
       </div>
       <div class="canvas-viewport" id="canvasViewport">
         <svg id="artboard" xmlns="http://www.w3.org/2000/svg">
@@ -730,6 +730,7 @@
       <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)">Ellipse</button>
       <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)">Line</button>
       <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter to finish (C)">Curve</button>
+      <button class="tool-btn" data-tool="polygon" title="Straight — freeform shape, click to place each corner, Enter to finish, click the start point to close (no curves - drag has no effect) (S)">Straight</button>
       <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)">Freehand</button>
       <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)">Cut</button>
       <button class="tool-btn" data-tool="multi" title="Multi-select — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)">Multi</button>
@@ -2481,7 +2482,13 @@
       evt.preventDefault(); return;
     }
 
-    if (tool === "curve") {
+    // Straight shares all of Curve's point-placement/close/finish
+    // plumbing below and in onPointerUp/keydown/setTool - the only
+    // difference is onPointerMove's smooth-handle drag (further down)
+    // stays gated to "curve" only, so a drag after a Straight click
+    // never grows bezier handles - every anchor it produces keeps
+    // hin/hout at zero, i.e. a plain corner, always.
+    if (tool === "curve" || tool === "polygon") {
       const sp = snapPt(p);
       if (!penDraft) {
         penDraft = { anchors: [{ x: sp.x, y: sp.y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } }], closed: false };
@@ -2776,7 +2783,7 @@
       freehandPoints = null; dragMode = null;
       render(); return;
     }
-    if (tool === "curve") {
+    if (tool === "curve" || tool === "polygon") {
       penPendingDrag = null;
     }
   }
@@ -2831,11 +2838,12 @@
     if (e.key === "o" || e.key === "O") setTool("ellipse");
     if (e.key === "l" || e.key === "L") setTool("line");
     if (e.key === "c" || e.key === "C") setTool("curve");
+    if (e.key === "s" || e.key === "S") setTool("polygon");
     if (e.key === "f" || e.key === "F") setTool("freehand");
     if (e.key === "h" || e.key === "H") setTool("cut");
     if (e.key === "p" || e.key === "P") setTool("pan");
     if (e.key === "m" || e.key === "M") setTool("multi");
-    if (e.key === "Enter" && tool === "curve" && penDraft) { commitPenDraft(); render(); }
+    if (e.key === "Enter" && (tool === "curve" || tool === "polygon") && penDraft) { commitPenDraft(); render(); }
     if (e.key === "Escape") {
       if (!cancelActiveDrag()) {
         if (penDraft) { penDraft = null; penPendingDrag = null; render(); }
@@ -3066,7 +3074,7 @@
   }
 
   function setTool(name) {
-    if (tool === "curve" && penDraft) { penDraft = null; penPendingDrag = null; }
+    if ((tool === "curve" || tool === "polygon") && penDraft) { penDraft = null; penPendingDrag = null; }
     tool = name;
     if (name !== "select") selectedId = null;
     // boolSet is shared between Select (shift-click) and Cut (plain tap) so
