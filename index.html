@@ -1332,7 +1332,21 @@
   }
 
   function parseMarkupToShapes(text) {
-    const doc = new DOMParser().parseFromString('<svg xmlns="' + SVGNS + '">' + text + "</svg>", "image/svg+xml");
+    // Accept a full exported document too, not just a bare shape
+    // fragment - export always writes an <?xml?> header + real <svg>
+    // root now (see wrapSvgDocument), and pasting that straight back in
+    // used to fail: the header isn't valid mid-document, and wrapping a
+    // second <svg> around an already-complete one just nests them, so
+    // the per-node loop below (which only looks at direct children of
+    // its root) never found the shapes at all. Strip the header and, if
+    // what's left is already a full <svg ...>...</svg> document, parse
+    // it directly instead of wrapping it again.
+    const trimmed = text.replace(/^\s*<\?xml[^>]*\?>\s*/, "").trim();
+    const isFullDoc = /^<svg[\s>]/i.test(trimmed);
+    const doc = new DOMParser().parseFromString(
+      isFullDoc ? trimmed : '<svg xmlns="' + SVGNS + '">' + trimmed + "</svg>",
+      "image/svg+xml"
+    );
     if (doc.querySelector("parsererror")) return { shapes: [], skipped: 1 };
     const root = doc.documentElement;
     const out = [];
