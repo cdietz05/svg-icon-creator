@@ -2775,12 +2775,25 @@
   // showed just the bare inner fragment, which is not a valid standalone
   // .svg file on its own (no root element at all) - a real bug once
   // manual copy-paste became the only reliably-working export path.
+  // Standalone's whole point is being opened directly (a real file, a
+  // logo, "viewable anywhere") rather than dropped into an app and
+  // CSS-sized - defaulting its intrinsic width/height to the canvas's
+  // native unit count (this tool's icons are usually a 24x24 grid) means
+  // it opens at a literal 24x24 CSS pixels, unreadably small, even
+  // though that's numerically "correct" scaling. This icon/All icons
+  // stay matched to the viewBox (unchanged) since those are meant to be
+  // embedded and CSS-sized by the consuming app, not opened raw.
+  const STANDALONE_EXPORT_PX = 256;
   function wrapSvgDocument(text, mode) {
     const xmlHeader = '<?xml version="1.0" encoding="UTF-8"?>\n';
     if (mode === "all") {
       return { full: xmlHeader + '<svg xmlns="' + SVGNS + '" width="0" height="0" style="position:absolute">\n' + text + "\n</svg>", filename: "svg-icon-pack.svg" };
     }
-    const full = xmlHeader + '<svg xmlns="' + SVGNS + '" viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '" width="' + project.viewBox.w + '" height="' + project.viewBox.h + '">\n  ' + text + "\n</svg>";
+    const vb = project.viewBox;
+    const dims = mode === "standalone"
+      ? { w: STANDALONE_EXPORT_PX, h: Math.round((STANDALONE_EXPORT_PX * vb.h) / vb.w) }
+      : { w: vb.w, h: vb.h };
+    const full = xmlHeader + '<svg xmlns="' + SVGNS + '" viewBox="0 0 ' + vb.w + " " + vb.h + '" width="' + dims.w + '" height="' + dims.h + '">\n  ' + text + "\n</svg>";
     const filename = project.activeKey + (mode === "standalone" ? "-standalone" : "") + ".svg";
     return { full, filename };
   }
