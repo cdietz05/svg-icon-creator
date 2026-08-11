@@ -2241,15 +2241,23 @@
   // rect/ellipse geometry are dropped, since a path uses anchors
   // instead. Not reversible (nothing to "uncheck" back to a rect), so
   // this is a button + confirm, not a persisted toggle.
-  function convertToFreeTransformPath(s) {
+  // The 4 straight-edge corner anchors a rect/ellipse's own bbox would
+  // become as a path (TL, TR, BR, BL - same order convertToFreeTransformPath
+  // commits) - shared so the rect corner-radius handles below can preview
+  // the exact positions/geometry a real conversion would produce, without
+  // actually converting anything until a corner is actually dragged.
+  function rectCornerAnchors(s) {
     const b = bboxOf(s);
     const zero = () => ({ dx: 0, dy: 0 });
-    const anchors = [
+    return [
       { x: b.x, y: b.y, hin: zero(), hout: zero() },
       { x: b.x + b.w, y: b.y, hin: zero(), hout: zero() },
       { x: b.x + b.w, y: b.y + b.h, hin: zero(), hout: zero() },
       { x: b.x, y: b.y + b.h, hin: zero(), hout: zero() },
     ];
+  }
+  function convertToFreeTransformPath(s) {
+    const anchors = rectCornerAnchors(s);
     delete s.x; delete s.y; delete s.w; delete s.h; delete s.rx; delete s.ry; delete s.cx; delete s.cy;
     s.type = "path";
     s.anchors = anchors;
@@ -2713,6 +2721,21 @@
           evt.preventDefault(); return;
         }
         dragMode = "handle"; dragHandle = handleName; dragStart = p;
+        if (handleName.indexOf("radius-") === 0 && targetShape.type === "rect") {
+          // Grabbing a corner-radius handle on a still-uniform rect
+          // converts it to a freeform path first (see
+          // convertToFreeTransformPath) - a native <rect> only ever has
+          // one shared rx, so making just this one corner diverge needs
+          // the same per-anchor .r representation a path corner already
+          // uses. Preserves the rect's current radius as the new
+          // shape-wide default first, so the other 3 corners don't
+          // visually jump - only the one actually being dragged then
+          // goes its own way. Recoverable via Ctrl+Z like any other
+          // drag, same as the explicit "Free Transform Corners" button.
+          const preservedRadius = targetShape.rx || 0;
+          convertToFreeTransformPath(targetShape);
+          targetShape.cornerRadius = preservedRadius;
+        }
         dragOrigShape = JSON.parse(JSON.stringify(targetShape));
         // Only an UNROTATED grouped shape can initiate a group-resize -
         // its own handles are drawn un-rotated, so the raw mouse delta
@@ -4227,6 +4250,20 @@
           const b = bboxOf(s);
           parts.push('<rect x="' + fmt(b.x) + '" y="' + fmt(b.y) + '" width="' + fmt(b.w) + '" height="' + fmt(b.h) + '" class="selection-outline"/>');
           HANDLE_DEFS.forEach((hd) => parts.push(handleMarkup(b.x + b.w * hd.gx, b.y + b.h * hd.gy, hd.name)));
+          if (s.type === "rect") {
+            // Previews the same 4 corners a real Free Transform Corners
+            // conversion would produce (see rectCornerAnchors) - purely
+            // for display, nothing here mutates the shape. Grabbing one
+            // (still named "radius-N", same as a path's) triggers the
+            // actual conversion in onPointerDown, then behaves exactly
+            // like an ordinary path corner-radius drag from there on.
+            const rectAnchors = rectCornerAnchors(s);
+            rectAnchors.forEach((a, i) => {
+              const gp = cornerRadiusGlyphPos(rectAnchors, i, true);
+              parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(gp.x) + '" y2="' + fmt(gp.y) + '" class="handle-guide"/>');
+              parts.push(cornerRadiusGlyphMarkup(gp, i));
+            });
+          }
         } else if (s.type === "path") {
           // While actively dragging a radius handle, every OTHER handle
           // (anchor dots, hin/hout, every other corner's own radius
