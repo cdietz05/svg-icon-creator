@@ -434,6 +434,7 @@
   .handle-diamond { fill: var(--surface); stroke: var(--accent-2); stroke-width: 0.12; pointer-events: none; }
   .handle-rotate { fill: var(--surface); stroke: var(--accent); stroke-width: 0.16; pointer-events: none; }
   .handle-bend { fill: var(--surface); stroke: var(--accent-2); stroke-width: 0.16; pointer-events: none; }
+  .handle-radius { fill: var(--select); stroke: var(--surface); stroke-width: 0.12; pointer-events: none; }
   .handle-guide { stroke: var(--accent-2); stroke-width: 0.08; opacity: 0.6; pointer-events: none; }
   .bool-outline-back { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.9 0.5; pointer-events: none; }
   .bool-outline-front { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.3 0.35; pointer-events: none; }
@@ -1070,12 +1071,20 @@
   // Anchors always carry hin/hout as {dx,dy} offsets from the anchor point
   // (zero offset = straight segment). This lets any segment be dragged into
   // a curve later without needing a separate "has handles" flag.
+  // cornerRadius is the shape-wide DEFAULT - an individual anchor's own
+  // .r (set via the Corner Radius handles, see setUpRadiusHandle)
+  // overrides it for that corner specifically, so "round every corner
+  // the same" and "round just this one corner" both fall out of the
+  // same mechanism: per-anchor .r is undefined/null until someone
+  // actually drags that corner's handle, so it inherits the shape
+  // default until then.
   function pathD(anchors, closed, cornerRadius) {
     if (!anchors.length) return "";
     const isZero = (h) => Math.abs(h.dx) < 0.001 && Math.abs(h.dy) < 0.001;
     const n = anchors.length;
-    const r = cornerRadius || 0;
-    if (r <= 0 || n < 3) {
+    const cornerR = (i) => { const a = anchors[i]; return a.r != null ? a.r : (cornerRadius || 0); };
+    const anyRounded = anchors.some((a, i) => cornerR(i) > 0);
+    if (!anyRounded || n < 3) {
       let d = "M " + fmt(anchors[0].x) + " " + fmt(anchors[0].y);
       const segCount = closed ? n : n - 1;
       for (let i = 0; i < segCount; i++) {
@@ -1103,6 +1112,7 @@
     const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
     const isCorner = (i) => {
       if (!closed && (i === 0 || i === n - 1)) return false;
+      if (cornerR(i) <= 0) return false;
       const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
       return isZero(prev.hout) && isZero(a.hin) && isZero(a.hout) && isZero(next.hin);
     };
@@ -1111,7 +1121,7 @@
     // of an edge and self-intersect.
     const roundedRadius = (i) => {
       const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
-      return Math.min(r, dist(prev, a) / 2, dist(a, next) / 2);
+      return Math.min(cornerR(i), dist(prev, a) / 2, dist(a, next) / 2);
     };
     const entry = (i) => {
       if (!isCorner(i)) return anchors[i];
@@ -1156,6 +1166,49 @@
     }
     if (closed) d += " Z";
     return d;
+  }
+  // Shared by the live Corner Radius handles (renderUI/applyHandleDrag)
+  // and pathD's own rendering - a corner is eligible for rounding at
+  // all only when both adjoining segments are straight (a bezier-
+  // shaped vertex has no well-defined "radius" to speak of). Doesn't
+  // check the radius itself (unlike pathD's own isCorner) since this
+  // is used to decide whether to show a DRAG HANDLE at all, including
+  // on a still-sharp (r=0) corner someone hasn't rounded yet.
+  function pathCornerEligible(anchors, i, closed) {
+    const n = anchors.length;
+    if (!closed && (i === 0 || i === n - 1)) return false;
+    const isZero = (h) => Math.abs(h.dx) < 0.001 && Math.abs(h.dy) < 0.001;
+    const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
+    return isZero(prev.hout) && isZero(a.hin) && isZero(a.hout) && isZero(next.hin);
+  }
+  // The interior angle bisector at anchor i, as a unit vector pointing
+  // from the corner into the shape - falls back to a perpendicular of
+  // the incoming edge on a ~180deg "corner" (straight-through vertex),
+  // where the two edge directions cancel out and the true bisector is
+  // undefined.
+  function cornerBisector(anchors, i, closed) {
+    const n = anchors.length;
+    const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
+    const d1 = Math.hypot(prev.x - a.x, prev.y - a.y) || 1;
+    const d2 = Math.hypot(next.x - a.x, next.y - a.y) || 1;
+    const u1x = (prev.x - a.x) / d1, u1y = (prev.y - a.y) / d1;
+    const u2x = (next.x - a.x) / d2, u2y = (next.y - a.y) / d2;
+    let bx = u1x + u2x, by = u1y + u2y;
+    let blen = Math.hypot(bx, by);
+    if (blen < 0.001) { bx = -u1y; by = u1x; blen = 1; }
+    return { x: bx / blen, y: by / blen, edgeMin: Math.min(d1, d2) };
+  }
+  // Where the handle itself is drawn - proportional to whatever radius
+  // is actually in effect right now (this anchor's own override, or
+  // the shape's default), so the handle's distance from the corner
+  // always visually matches how rounded it currently looks, not just
+  // the override state.
+  function cornerHandlePos(anchors, i, closed, shapeDefaultR) {
+    const a = anchors[i];
+    const bis = cornerBisector(anchors, i, closed);
+    const effectiveR = a.r != null ? a.r : (shapeDefaultR || 0);
+    const dist = Math.max(effectiveR, bis.edgeMin * 0.15);
+    return { x: a.x + bis.x * dist, y: a.y + bis.y * dist };
   }
 
   function parsePathD(d) {
@@ -2802,6 +2855,20 @@
       s.anchors[i][kind] = { dx: origA[kind].dx + dx, dy: origA[kind].dy + dy };
       return;
     }
+    if (handle.indexOf("radius-") === 0) {
+      // Projects the drag delta onto that corner's own bisector -
+      // moving away from the corner grows the radius, moving back
+      // toward it shrinks back down to a sharp corner at 0. Uses the
+      // pre-drag ORIGINAL anchor positions for the bisector itself
+      // (dragging shouldn't make the handle's own direction wander as
+      // the radius changes), starting from whatever radius was already
+      // in effect (this anchor's own override, or the shape default).
+      const i = parseInt(handle.split("-")[1], 10);
+      const bis = cornerBisector(orig.anchors, i, orig.closed);
+      const startR = orig.anchors[i].r != null ? orig.anchors[i].r : (orig.cornerRadius || 0);
+      s.anchors[i].r = Math.max(0, startR + (dx * bis.x + dy * bis.y));
+      return;
+    }
     if (handle === "p1") { const p = snapPt({ x: orig.x1 + dx, y: orig.y1 + dy }); s.x1 = p.x; s.y1 = p.y; return; }
     if (handle === "p2") { const p = snapPt({ x: orig.x2 + dx, y: orig.y2 + dy }); s.x2 = p.x; s.y2 = p.y; return; }
     const origBbox = bboxOf(orig);
@@ -3819,6 +3886,16 @@
             parts.push(handleMarkup(a.x + a.hin.dx, a.y + a.hin.dy, "hin-" + i, "handle-diamond"));
             parts.push(handleMarkup(a.x + a.hout.dx, a.y + a.hout.dy, "hout-" + i, "handle-diamond"));
             parts.push(handleMarkup(a.x, a.y, "anchor-" + i, "handle-anchor"));
+            // Corner Radius handle - only on a straight-both-sides
+            // corner (nothing to round on a bezier-shaped vertex).
+            // Dragging it sets THIS anchor's own .r, independent of
+            // every other corner - see applyHandleDrag's "radius-"
+            // branch and pathD's per-corner cornerR() resolution.
+            if (pathCornerEligible(s.anchors, i, s.closed)) {
+              const hp = cornerHandlePos(s.anchors, i, s.closed, s.cornerRadius);
+              parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(hp.x) + '" y2="' + fmt(hp.y) + '" class="handle-guide"/>');
+              parts.push(handleMarkup(hp.x, hp.y, "radius-" + i, "handle-radius"));
+            }
           });
         } else if (s.type === "compound") {
           // The true silhouette outline, plus the same 8 bbox handles
