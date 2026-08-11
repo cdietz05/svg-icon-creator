@@ -1780,6 +1780,7 @@
 
   let project = loadProject() || createDefaultProject();
   if (!project.icons[project.activeKey]) project.activeKey = Object.keys(project.icons)[0];
+  Object.values(project.icons).forEach(ensureIconLayers);
 
   let history = [];
   let historyIndex = -1;
@@ -1822,6 +1823,19 @@
     const defaultId = icon.layers[0].id;
     icon.shapes.forEach((s) => { if (!s.layer) s.layer = defaultId; });
     return icon.layers;
+  }
+  // Read-only, O(1) counterpart for the render path - render() runs on
+  // every pointermove while drawing/dragging, and ensureIconLayers'
+  // forEach-over-every-shape backfill made every one of those frames do
+  // O(shapes) work per icon, times every render sub-function that reads
+  // layers (icon list, properties, preview, export...) - that's what
+  // made drawing laggy/unresponsive. ensureIconLayers only needs to run
+  // once per icon (project load, new icon, import) to actually persist
+  // real layers; every render-time read after that just needs a value,
+  // not a mutation, so this never touches icon.shapes at all.
+  const NO_LAYERS_FALLBACK = [{ id: "__nolayers__", name: "Layer 1" }];
+  function iconLayers(icon) {
+    return icon.layers && icon.layers.length ? icon.layers : NO_LAYERS_FALLBACK;
   }
 
   // ---------- interaction state (not persisted) ----------
@@ -2708,7 +2722,7 @@
     const words = name.trim().replace(/[^a-zA-Z0-9]+/g, " ").trim().split(" ");
     const key = words.map((w, i) => (i === 0 ? w[0].toLowerCase() + w.slice(1) : w[0].toUpperCase() + w.slice(1))).join("");
     if (!key || project.icons[key]) { showAlert("Pick a different name — that key is already used."); return; }
-    project.icons[key] = { name: name.trim(), shapes: [] };
+    project.icons[key] = { name: name.trim(), shapes: [], layers: [{ id: uid(), name: "Layer 1" }] };
     project.activeKey = key;
     selectedId = null;
     boolSet = [];
@@ -2730,6 +2744,7 @@
     const ok = await showConfirm("Start a new project? This clears every icon in the editor. Export or download first if you want to keep this set.");
     if (!ok) return;
     project = createDefaultProject();
+    Object.values(project.icons).forEach(ensureIconLayers);
     selectedId = null;
     boolSet = [];
     multiSelect = [];
@@ -2760,6 +2775,7 @@
       if (!p.icons || !p.viewBox) throw new Error("bad project");
       project = p;
       if (!project.activeKey || !project.icons[project.activeKey]) project.activeKey = Object.keys(project.icons)[0];
+      Object.values(project.icons).forEach(ensureIconLayers);
       selectedId = null;
       boolSet = [];
       multiSelect = [];
@@ -2778,6 +2794,7 @@
         if (!p.icons || !p.viewBox) throw new Error("bad file");
         project = p;
         if (!project.activeKey || !project.icons[project.activeKey]) project.activeKey = Object.keys(project.icons)[0];
+        Object.values(project.icons).forEach(ensureIconLayers);
         selectedId = null;
         boolSet = [];
         multiSelect = [];
@@ -2977,7 +2994,7 @@
       const icon = project.icons[key];
       rows.push(
         '<div class="icon-row' + (key === project.activeKey ? " active" : "") + '" data-key="' + key + '">' +
-        '<svg viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '" class="icon-row-thumb">' + shapesMarkup(icon.shapes, ensureIconLayers(icon)) + "</svg>" +
+        '<svg viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '" class="icon-row-thumb">' + shapesMarkup(icon.shapes, iconLayers(icon)) + "</svg>" +
         '<span class="icon-row-name">' + icon.name + "</span>" +
         '<span class="icon-row-count">' + icon.shapes.length + "</span>" +
         '<button class="icon-row-del" data-del="' + key + '" title="Delete icon">✕</button>' +
@@ -3017,8 +3034,9 @@
   function renderLayerList() {
     const list = document.getElementById("layerList");
     const icon = activeIcon();
-    const layers = ensureIconLayers(icon);
-    const active = currentLayerId();
+    const layers = iconLayers(icon);
+    if (!layers.some((l) => l.id === activeLayerId)) activeLayerId = layers[layers.length - 1].id;
+    const active = activeLayerId;
     const counts = {};
     icon.shapes.forEach((s) => { counts[s.layer] = (counts[s.layer] || 0) + 1; });
     const rows = layers.slice().reverse().map((layer) =>
@@ -3077,7 +3095,7 @@
   const SHADE_PALETTE = ["#ffffff", "#dbe4ff", "#ffe1e1", "#dcffe4", "#fff3d1", "#e6d9ff", "#d1f5ff", "#ffe0f0"];
   function renderShapesLayer() {
     const arr = shapes();
-    const layers = ensureIconLayers(activeIcon());
+    const layers = iconLayers(activeIcon());
     let shadeIdx = 0;
     const markup = layers.map((layer) => {
       const layerShapes = arr.filter((s) => (s.layer || layers[0].id) === layer.id);
@@ -3258,7 +3276,7 @@
     const s = getShapeById(selectedId);
     if (!s || tool !== "select") { panel.innerHTML = '<p class="muted">Pick a tool above and draw, or select a shape to edit it.</p>'; return; }
     let html = '<div class="prop-row"><label>Type</label><span style="font-family:var(--mono); font-size:11px;">' + s.type + "</span></div>";
-    const propLayers = ensureIconLayers(activeIcon());
+    const propLayers = iconLayers(activeIcon());
     if (propLayers.length > 1) {
       html += '<div class="prop-row"><label>Layer</label><select id="propLayer">' +
         propLayers.map((l) => '<option value="' + l.id + '"' + ((s.layer || propLayers[0].id) === l.id ? " selected" : "") + ">" + l.name + "</option>").join("") +
@@ -3345,7 +3363,7 @@
   }
 
   function renderPreview() {
-    const markup = shapesMarkup(shapes(), ensureIconLayers(activeIcon()));
+    const markup = shapesMarkup(shapes(), iconLayers(activeIcon()));
     const vb = "0 0 " + project.viewBox.w + " " + project.viewBox.h;
     ["22", "56", "96"].forEach((size) => {
       const box = document.getElementById("preview-" + size);
@@ -3508,10 +3526,10 @@
       return "<defs>\n" + Object.keys(project.icons).map((key) => {
         const icon = project.icons[key];
         return '<symbol id="i-' + key.toLowerCase() + '" viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '">\n  ' +
-          shapesMarkup(icon.shapes, ensureIconLayers(icon)) + "\n</symbol>";
+          shapesMarkup(icon.shapes, iconLayers(icon)) + "\n</symbol>";
       }).join("\n\n") + "\n</defs>";
     }
-    const raw = shapesMarkup(shapes(), ensureIconLayers(activeIcon()));
+    const raw = shapesMarkup(shapes(), iconLayers(activeIcon()));
     return mode === "standalone" ? bakeStandaloneColor(raw) : raw;
   }
   // Same optimizer, applied per-<symbol> so mask/clip ids stay unique
@@ -3523,10 +3541,10 @@
       return "<defs>\n" + Object.keys(project.icons).map((key) => {
         const icon = project.icons[key];
         return '<symbol id="i-' + key.toLowerCase() + '" viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '">\n  ' +
-          optimizeExportMarkup(shapesMarkup(icon.shapes, ensureIconLayers(icon)), key + "-") + "\n</symbol>";
+          optimizeExportMarkup(shapesMarkup(icon.shapes, iconLayers(icon)), key + "-") + "\n</symbol>";
       }).join("\n\n") + "\n</defs>";
     }
-    const opt = optimizeExportMarkup(shapesMarkup(shapes(), ensureIconLayers(activeIcon())), "");
+    const opt = optimizeExportMarkup(shapesMarkup(shapes(), iconLayers(activeIcon())), "");
     return mode === "standalone" ? bakeStandaloneColor(opt) : opt;
   }
   function renderExport() {
