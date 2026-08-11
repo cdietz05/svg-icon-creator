@@ -446,8 +446,8 @@
      cornerRadiusGlyphPos), so it no longer creeps toward/away from the
      real resize/anchor handles as the radius grows, and stays a small,
      easy-to-distinguish target next to them instead of drifting on top. */
-  .handle-radius { fill: none; stroke: var(--select); stroke-width: 0.16; stroke-linecap: round; pointer-events: none; }
-  [data-handle^="radius-"]:hover + .handle-radius { stroke: var(--accent-2); stroke-width: 0.26; }
+  .handle-radius { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-linecap: round; pointer-events: none; }
+  [data-handle^="radius-"]:hover + .handle-radius { stroke: var(--accent); stroke-width: 0.26; }
   .bool-outline-back { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.9 0.5; pointer-events: none; }
   .bool-outline-front { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.3 0.35; pointer-events: none; }
   .multi-outline { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-width: 0.14; stroke-dasharray: 0.5 0.35; pointer-events: none; }
@@ -1264,10 +1264,13 @@
   // little control glyph next to the corner never does.
   function cornerRadiusGlyphPos(anchors, i, closed) {
     const a = anchors[i];
-    const bis = cornerBisector(anchors, i, closed);
+    const bis = cornerBisector(anchors, i, closed); // points INTO the shape
     const desired = clamp(11 / zoom, 0.25, 3);
     const dist = Math.min(desired, Math.max(0.12, bis.edgeMin * 0.4));
-    return { x: a.x + bis.x * dist, y: a.y + bis.y * dist, bis, dist };
+    // Negated bisector - sits OUTSIDE the shape, not inside it, so it's
+    // never sitting on top of the shape's own body/fill or crowded
+    // against interior handles.
+    return { x: a.x - bis.x * dist, y: a.y - bis.y * dist, bis, dist };
   }
   // A short curved stroke (not a filled dot, see the .handle-radius CSS)
   // bowed back toward the corner so it actually reads as a rounding cue.
@@ -1278,7 +1281,9 @@
     const p1x = g.x + px * half, p1y = g.y + py * half;
     const p2x = g.x - px * half, p2y = g.y - py * half;
     const bow = half * 0.9;
-    const ctrlx = g.x - bis.x * bow, ctrly = g.y - bis.y * bow;
+    // g sits outside the shape now (bis still points from corner INTO
+    // the shape) - bowing toward the corner means moving along +bis.
+    const ctrlx = g.x + bis.x * bow, ctrly = g.y + bis.y * bow;
     return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR()) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
       '<path d="M ' + fmt(p1x) + ' ' + fmt(p1y) + ' Q ' + fmt(ctrlx) + ' ' + fmt(ctrly) + ' ' + fmt(p2x) + ' ' + fmt(p2y) + '" class="handle-radius"/>';
   }
