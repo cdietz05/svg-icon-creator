@@ -644,7 +644,7 @@
     <div class="canvas-wrap">
       <div class="toolbar-dock" id="toolbarDock"></div>
       <div class="hint">
-        <b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> finishes, click the start point to close) · <b>S</b> straight (same as Curve but every click is a plain corner - dragging has no effect, no bezier curves) · <b>F</b> freehand (just draw, it's smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · a selected shape's top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo
+        <b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> finishes, click the start point to close) · <b>S</b> freeform (same as Curve but every click is a plain corner - dragging has no effect, no bezier curves) · <b>F</b> freehand (just draw, it's smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · a selected shape's top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo
       </div>
       <div class="canvas-viewport" id="canvasViewport">
         <svg id="artboard" xmlns="http://www.w3.org/2000/svg">
@@ -730,7 +730,7 @@
       <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)">Ellipse</button>
       <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)">Line</button>
       <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter to finish (C)">Curve</button>
-      <button class="tool-btn" data-tool="polygon" title="Straight — freeform shape, click to place each corner, Enter to finish, click the start point to close (no curves - drag has no effect) (S)">Straight</button>
+      <button class="tool-btn" data-tool="polygon" title="Freeform — click to place each corner, Enter to finish, click the start point to close (no curves - drag has no effect) (S)">Freeform</button>
       <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)">Freehand</button>
       <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)">Cut</button>
       <button class="tool-btn" data-tool="multi" title="Multi-select — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)">Multi</button>
@@ -2482,12 +2482,12 @@
       evt.preventDefault(); return;
     }
 
-    // Straight shares all of Curve's point-placement/close/finish
-    // plumbing below and in onPointerUp/keydown/setTool - the only
-    // difference is onPointerMove's smooth-handle drag (further down)
-    // stays gated to "curve" only, so a drag after a Straight click
-    // never grows bezier handles - every anchor it produces keeps
-    // hin/hout at zero, i.e. a plain corner, always.
+    // Freeform (tool id "polygon") shares all of Curve's point-
+    // placement/close/finish plumbing below and in onPointerUp/keydown/
+    // setTool - the only difference is onPointerMove's smooth-handle
+    // drag (further down) stays gated to "curve" only, so a drag after
+    // a Freeform click never grows bezier handles - every anchor it
+    // produces keeps hin/hout at zero, i.e. a plain corner, always.
     if (tool === "curve" || tool === "polygon") {
       const sp = snapPt(p);
       if (!penDraft) {
