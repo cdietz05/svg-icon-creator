@@ -191,6 +191,7 @@
   }
 
   .panel-head {
+    flex-shrink: 0;
     padding: 10px 12px 6px;
     font-family: var(--display);
     font-size: 12px;
@@ -217,6 +218,7 @@
      every header in the left sidebar - nothing above those to divide
      against). */
   .panel-subhead {
+    flex-shrink: 0;
     padding: 10px 12px 6px;
     font-family: var(--display);
     font-size: 12px;
@@ -227,6 +229,22 @@
     justify-content: space-between;
     gap: 8px;
   }
+  /* The right sidebar's own 5 sections (Properties/Boolean/Preview/
+     Import/Export) can each be instantly collapsed to just this header
+     row via the leading chevron - wrapping title+chevron in one flex
+     item keeps .panel-head/.panel-subhead's own space-between working
+     correctly against a section's trailing action button (Preview's
+     "Enlarge Preview"), rather than centering the title between three
+     top-level flex children. */
+  .panel-head-title { display: flex; align-items: center; gap: 6px; }
+  .panel-collapse-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 10px; line-height: 1; padding: 2px; width: 14px; flex: none;
+    transition: transform 0.15s ease;
+  }
+  .panel-collapse-btn:hover { color: var(--text); }
+  .panel-collapse-btn.collapsed { transform: rotate(-90deg); }
+  .panel-body.panel-collapsed, .panel-divider.panel-collapsed { display: none; }
 
   #iconList { padding: 6px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
   #layerList { padding: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 130px; overflow-y: auto; }
@@ -258,7 +276,7 @@
      height made the sections below it hard to reach. overflow-y here
      is what actually lets that manually-set height (via .panel-divider
      below) scroll instead of just clipping. */
-  .panel-body { overflow-y: auto; min-height: 48px; max-height: 70vh; }
+  .panel-body { flex-shrink: 0; overflow-y: auto; min-height: 48px; max-height: 70vh; }
   /* The divider line between two right-sidebar sections IS the resize
      handle - dragging it resizes the section above it (data-resize-
      target points at that section's own .panel-body id). Replaces an
@@ -463,17 +481,23 @@
   .floating-preview-resize span:nth-child(3) { width: 5px; bottom: 9px; }
   .floating-preview-resize:hover span, .floating-preview-resize.dragging span { background: var(--accent-2); }
 
-  /* The drawing toolbar, floated off the canvas the same way the
-     preview panel is - draggable by its header, collapsible down to
-     just the 9 drawing tools (.toolbar-extra hides the rest: undo/
-     redo, snap/grid, zoom, weight, smooth, canvas size) for a genuinely
-     smaller footprint when the secondary controls aren't needed. */
+  /* The drawing toolbar - starts DOCKED (a plain top-of-canvas bar, see
+     .toolbar-dock below) but #floatingToolbarBody (the actual buttons -
+     one shared element, moved between the two shells via appendChild,
+     not duplicated) can be undocked into this floating/draggable/
+     resizable panel instead, the same pattern the preview panel already
+     uses. Collapsible down to just the 9 drawing tools (.toolbar-extra
+     hides the rest: undo/redo, snap/grid, zoom, weight, smooth, canvas
+     size) for a genuinely smaller footprint when undocked and the
+     secondary controls aren't needed right now. */
   .floating-toolbar {
     position: fixed; top: 70px; left: 250px; width: 660px; max-width: 90vw;
+    min-width: 280px; min-height: 120px; max-height: 90vh;
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
     display: flex; flex-direction: column; z-index: 950; overflow: hidden;
   }
+  .floating-toolbar.hidden { display: none; }
   .floating-toolbar-head {
     flex: none; display: flex; align-items: center; justify-content: space-between;
     padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--border);
@@ -481,11 +505,21 @@
     cursor: move; touch-action: none; -webkit-user-select: none; user-select: none;
   }
   .floating-toolbar-body {
+    flex: 1; min-height: 0; align-content: flex-start;
     display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap;
-    max-height: 70vh; overflow-y: auto;
+    overflow-y: auto;
   }
   .floating-toolbar.collapsed .toolbar-extra { display: none; }
   .floating-toolbar.collapsed .floating-toolbar-body { gap: 6px; }
+
+  /* Docked state: #floatingToolbarBody sits here instead, styled to
+     look like a plain top-of-canvas bar again - :empty collapses it to
+     nothing (no stray border/padding) once the body's been moved out
+     into the floating panel above. */
+  .canvas-topbar { display: flex; align-items: flex-start; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .canvas-topbar-toggle { flex: none; align-self: center; margin: 0 2px 0 6px; }
+  .toolbar-dock { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap; }
+  .toolbar-dock:empty { padding: 0; }
 </style>
 
 <div class="app">
@@ -529,6 +563,10 @@
     </aside>
 
     <div class="canvas-wrap">
+      <div class="canvas-topbar">
+        <button id="toggleLeftBtn" class="canvas-topbar-toggle" title="Hide/show the icon list">◀</button>
+        <div class="toolbar-dock" id="toolbarDock"></div>
+      </div>
       <div class="hint">
         <b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> finishes, click the start point to close) · <b>F</b> freehand (just draw, it's smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · a selected shape's top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo
       </div>
@@ -542,16 +580,16 @@
     </div>
 
     <aside class="right">
-      <div class="panel-head">Properties</div>
+      <div class="panel-head"><span class="panel-head-title"><button class="panel-collapse-btn" data-collapse-target="propsPanel" title="Collapse/expand this section">▾</button>Properties</span></div>
       <div class="stack panel-body" id="propsPanel"></div>
       <div class="panel-divider" data-resize-target="propsPanel"></div>
 
-      <div class="panel-subhead">Boolean — cut a hole</div>
+      <div class="panel-subhead"><span class="panel-head-title"><button class="panel-collapse-btn" data-collapse-target="boolPanel" title="Collapse/expand this section">▾</button>Boolean — cut a hole</span></div>
       <div class="stack panel-body" id="boolPanel"></div>
       <div class="panel-divider" data-resize-target="boolPanel"></div>
 
       <div class="panel-subhead">
-        Preview at size
+        <span class="panel-head-title"><button class="panel-collapse-btn" data-collapse-target="previewPanelBody" title="Collapse/expand this section">▾</button>Preview at size</span>
         <button id="floatPreviewBtn" class="panel-head-btn" title="Open a larger, resizable, freely-movable preview window">⤢ Enlarge Preview</button>
       </div>
       <div class="stack panel-body" id="previewPanelBody">
@@ -563,14 +601,14 @@
       </div>
       <div class="panel-divider" data-resize-target="previewPanelBody"></div>
 
-      <div class="panel-subhead">Import SVG markup</div>
+      <div class="panel-subhead"><span class="panel-head-title"><button class="panel-collapse-btn" data-collapse-target="importPanelBody" title="Collapse/expand this section">▾</button>Import SVG markup</span></div>
       <div class="stack panel-body" id="importPanelBody">
         <textarea id="importText" placeholder="Paste rect/circle/ellipse/line/polygon/path markup here (e.g. from a previous draft) to load it into the active icon as editable shapes."></textarea>
         <button id="importBtn">Import into this icon</button>
       </div>
       <div class="panel-divider" data-resize-target="importPanelBody"></div>
 
-      <div class="panel-subhead">Export</div>
+      <div class="panel-subhead"><span class="panel-head-title"><button class="panel-collapse-btn" data-collapse-target="exportPanelBody" title="Collapse/expand this section">▾</button>Export</span></div>
       <div class="stack panel-body" id="exportPanelBody">
         <div class="radio-row">
           <label><input type="radio" name="exportMode" value="active" checked> This icon</label>
@@ -599,7 +637,7 @@
   </div>
 </div>
 
-<div class="floating-toolbar" id="floatingToolbar">
+<div class="floating-toolbar hidden" id="floatingToolbar">
   <div class="floating-toolbar-head" id="floatingToolbarHead">
     <span>Tools</span>
     <span class="floating-preview-head-actions">
@@ -608,7 +646,7 @@
   </div>
   <div class="floating-toolbar-body" id="floatingToolbarBody">
     <div class="tool-group">
-      <button id="toggleLeftBtn" title="Hide/show the icon list">◀</button>
+      <button id="toolbarDockToggle" title="Undock the toolbar so it can float, move, and be resized">⇱</button>
     </div>
     <div class="tool-group">
       <button class="tool-btn active" data-tool="select" title="Select / move (V)">Select</button>
@@ -648,6 +686,7 @@
       <label title="Icon's own coordinate grid size, in viewBox units - not the exported pixel size">Canvas <input type="number" id="vbW" value="24" min="4" max="512" style="width:48px"> × <input type="number" id="vbH" value="24" min="4" max="512" style="width:48px"></label>
     </div>
   </div>
+  <div class="floating-preview-resize" id="floatingToolbarResize" title="Drag to resize"><span></span><span></span><span></span></div>
 </div>
 
 <div id="floatingPreview" class="floating-preview hidden">
@@ -2880,6 +2919,22 @@
       evt.preventDefault();
     });
   });
+  // Instant collapse/expand for each right-sidebar section - hides the
+  // .panel-body (and its own resize divider, since dragging a hidden
+  // section's height makes no sense) down to just its header row.
+  // #propsPanel/#boolPanel keep getting their innerHTML rebuilt by
+  // renderProperties()/renderBoolPanel() while collapsed - harmless,
+  // content is just correctly there already whenever it's reopened.
+  document.querySelectorAll(".panel-collapse-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetId = btn.dataset.collapseTarget;
+      const body = document.getElementById(targetId);
+      const divider = document.querySelector('.panel-divider[data-resize-target="' + targetId + '"]');
+      const collapsed = btn.classList.toggle("collapsed");
+      body.classList.toggle("panel-collapsed", collapsed);
+      if (divider) divider.classList.toggle("panel-collapsed", collapsed);
+    });
+  });
   // Floating preview window - open/close, drag-to-move (via its header
   // bar), drag-to-resize (via the corner grip). Position/size are plain
   // inline styles, not persisted - resets on reload, same as every
@@ -2909,15 +2964,44 @@
     host.innerHTML = '<svg viewBox="0 0 ' + vb.w + " " + vb.h + '" style="width:100%; height:100%; color:#6ee7ff;">' +
       shapesMarkup(shapes(), iconLayers(activeIcon())) + "</svg>";
   }
-  // Drawing toolbar - floated off the canvas (not docked in normal
-  // page flow) so it can be dragged out of the way, and collapsible
-  // down to just the 9 drawing tools via .toolbar-extra (everything
-  // else: undo/redo, snap/grid, zoom, weight, smooth, canvas size).
-  // Position/collapsed state are session-only, same as the floating
-  // preview - resets on reload.
+  // Drawing toolbar - starts DOCKED (a plain bar at the top of the
+  // canvas), can be undocked into a floating/draggable/resizable panel
+  // instead, same pattern the preview panel already uses. The two
+  // "shells" (.toolbar-dock when docked, .floating-toolbar's body slot
+  // when undocked) share ONE actual content element
+  // (#floatingToolbarBody) moved back and forth via appendChild rather
+  // than duplicated - appendChild relocates a node in place, so every
+  // button's event listener (wired once, below/elsewhere) keeps
+  // working regardless of which shell currently holds it. The ◀
+  // sidebar-collapse arrow deliberately lives OUTSIDE this shared body,
+  // directly in .canvas-topbar - it stays put at the top of the canvas
+  // even when the rest of the toolbar floats off elsewhere, since
+  // hiding the icon list is a layout control, not a drawing tool.
+  // Dock state/position/size/collapsed are all session-only, same as
+  // the floating preview - resets on reload.
   (function setUpFloatingToolbar() {
     const win = document.getElementById("floatingToolbar");
     const head = document.getElementById("floatingToolbarHead");
+    const body = document.getElementById("floatingToolbarBody");
+    const dock = document.getElementById("toolbarDock");
+    const resizeHandle = document.getElementById("floatingToolbarResize");
+    let docked = true;
+    function setDocked(next) {
+      docked = next;
+      const dockBtn = document.getElementById("toolbarDockToggle");
+      if (docked) {
+        dock.appendChild(body);
+        win.classList.add("hidden");
+        dockBtn.textContent = "⇱";
+        dockBtn.title = "Undock the toolbar so it can float, move, and be resized";
+      } else {
+        win.appendChild(body);
+        win.classList.remove("hidden");
+        dockBtn.textContent = "⇲";
+        dockBtn.title = "Dock the toolbar back to the top of the canvas";
+      }
+    }
+    document.getElementById("toolbarDockToggle").addEventListener("click", () => setDocked(!docked));
     document.getElementById("toolbarCollapseBtn").addEventListener("click", () => {
       const collapsed = win.classList.toggle("collapsed");
       document.getElementById("toolbarCollapseBtn").textContent = collapsed ? "+" : "−";
@@ -2942,6 +3026,27 @@
       head.addEventListener("pointerup", onUp);
       evt.preventDefault();
     });
+    resizeHandle.addEventListener("pointerdown", (evt) => {
+      const rect = win.getBoundingClientRect();
+      const startX = evt.clientX, startY = evt.clientY;
+      const startW = rect.width, startH = rect.height;
+      resizeHandle.classList.add("dragging");
+      resizeHandle.setPointerCapture(evt.pointerId);
+      const onMove = (mv) => {
+        win.style.width = clamp(startW + (mv.clientX - startX), 280, window.innerWidth * 0.9) + "px";
+        win.style.height = clamp(startH + (mv.clientY - startY), 120, window.innerHeight * 0.9) + "px";
+      };
+      const onUp = (up) => {
+        resizeHandle.releasePointerCapture(up.pointerId);
+        resizeHandle.classList.remove("dragging");
+        resizeHandle.removeEventListener("pointermove", onMove);
+        resizeHandle.removeEventListener("pointerup", onUp);
+      };
+      resizeHandle.addEventListener("pointermove", onMove);
+      resizeHandle.addEventListener("pointerup", onUp);
+      evt.preventDefault();
+    });
+    setDocked(true);
   })();
   (function setUpFloatingPreview() {
     const win = document.getElementById("floatingPreview");
