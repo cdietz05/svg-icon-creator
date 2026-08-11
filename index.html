@@ -719,12 +719,11 @@
           <label><input type="radio" name="exportMode" value="all"> All icons</label>
           <label><input type="radio" name="exportMode" value="standalone" title="Bakes an explicit color into fill/stroke instead of currentColor, and skips nothing else this tool relies on being modern - viewable standalone in an <img> tag, an old browser, or any SVG viewer, not just inlined in a page that can supply currentColor via CSS."> Standalone</label>
         </div>
-        <p class="muted" style="font-size:10.5px;"><b>This icon</b>/<b>All icons</b> always export single-color (plain <code>currentColor</code>) - the app embedding it themes it via CSS. <b>Standalone</b> (and the .png/.webp export below it) bakes in whatever colors are actually set here - any shape's own Custom color, or its layer's, from the canvas/preview - so those keep every color you see on screen.</p>
+        <p class="muted" style="font-size:10.5px;"><b>This icon</b>/<b>All icons</b> always export single-color (plain <code>currentColor</code>) - the app embedding it themes it via CSS. <b>Standalone</b> (and the .png/.webp export below it) bakes in each shape's own Custom color (set on the shape itself, in Properties) - so those keep every color you see on screen.</p>
         <div class="prop-row" id="standaloneSizeRow" style="display:none">
           <label>Export size</label>
           <input type="number" id="standaloneSize" min="16" max="4096" step="1" value="1024"> px
         </div>
-        <div id="standaloneColorRows" style="display:none"></div>
         <textarea id="exportText" readonly></textarea>
         <p class="muted" style="font-size:10.5px;">None of the buttons below responding (some browsers/devices block all of them)? Tap inside the box above, tap <b>Select All</b>, then <b>Copy</b> from the menu that pops up - that's your device doing the copying, not this page, so no permission can block it.</p>
         <div class="btn-row">
@@ -3871,7 +3870,6 @@
   document.querySelectorAll('input[name="exportMode"]').forEach((r) => r.addEventListener("change", () => {
     const isStandalone = document.querySelector('input[name="exportMode"]:checked').value === "standalone";
     document.getElementById("standaloneSizeRow").style.display = isStandalone ? "flex" : "none";
-    document.getElementById("standaloneColorRows").style.display = isStandalone ? "block" : "none";
     document.getElementById("rasterExportRow").style.display = isStandalone ? "flex" : "none";
     renderExport();
   }));
@@ -4867,31 +4865,12 @@
     if (mode === "standalone") return optimizeExportMarkup(shapesMarkupStandalone(shapes(), iconLayers(activeIcon())), "");
     return optimizeExportMarkup(shapesMarkup(shapes(), iconLayers(activeIcon())), "");
   }
-  // One color picker per layer of the active icon, shown only in
-  // Standalone mode - rebuilt from render() (icon/layer list changes
-  // rarely) rather than on every renderExport() tick, so dragging a
-  // color wheel doesn't destroy the very input being dragged out from
-  // under the pointer (same reasoning as propCornerRadius above).
-  function renderStandaloneColors() {
-    const container = document.getElementById("standaloneColorRows");
-    const layers = iconLayers(activeIcon());
-    container.innerHTML = layers.map((layer) =>
-      '<div class="prop-row"><label>' + escapeHtml(layer.name) + ' color</label>' +
-      '<input type="color" class="standaloneLayerColor" data-layer="' + layer.id + '" value="' + (layer.color || "#000000") + '"></div>'
-    ).join("");
-    container.querySelectorAll(".standaloneLayerColor").forEach((input) => {
-      input.addEventListener("input", () => {
-        const layer = layers.find((l) => l.id === input.dataset.layer);
-        if (layer) layer.color = input.value;
-        // Not just export text anymore - a layer's color is now also
-        // the fallback the live canvas/preview use for any of its
-        // shapes that don't have their own Custom color set (see
-        // shapeDisplayColor), so both need to catch up live too.
-        renderShapesLayer(); renderPreview(); renderExport();
-      });
-      input.addEventListener("change", () => { pushHistory(); saveProject(); });
-    });
-  }
+  // Per-layer color used to be settable here too (one picker per layer,
+  // shown only in Standalone mode) - removed now that a shape's own
+  // Custom color (Properties panel, visible regardless of export mode)
+  // covers this with more control. layer.color still exists as a
+  // fallback in shapeDisplayColor for shapes with no override of their
+  // own, just nothing in the UI sets it anymore.
   function renderExport() {
     // Cheap/raw wrap (not optimizeExportMarkup - this runs every
     // render(), every drag frame) so the visible textarea is always a
@@ -4945,7 +4924,6 @@
     renderProperties();
     renderBoolPanel();
     renderPreview();
-    renderStandaloneColors();
     renderExport();
   }
 
