@@ -727,6 +727,10 @@
           <button id="copyBtn">Copy</button>
           <button id="downloadBtn" class="primary">Download .svg</button>
         </div>
+        <div class="btn-row" id="rasterExportRow" style="display:none">
+          <button id="downloadPngBtn" title="Rasterized at the Export size above, using Standalone mode's real colors and transparency where nothing is drawn.">Download .png</button>
+          <button id="downloadWebpBtn" title="Rasterized at the Export size above, using Standalone mode's real colors and transparency where nothing is drawn.">Download .webp</button>
+        </div>
         <div class="btn-row">
           <button id="openSvgTabBtn" title="Tries your device's native Share sheet (Save to Files, etc.) first, then falls back to opening the SVG as its own page - use Save Page As / Ctrl+S there. Works even where the Download button's download doesn't.">Share / Open in Tab</button>
         </div>
@@ -3815,6 +3819,7 @@
     const isStandalone = document.querySelector('input[name="exportMode"]:checked').value === "standalone";
     document.getElementById("standaloneSizeRow").style.display = isStandalone ? "flex" : "none";
     document.getElementById("standaloneColorRows").style.display = isStandalone ? "block" : "none";
+    document.getElementById("rasterExportRow").style.display = isStandalone ? "flex" : "none";
     renderExport();
   }));
   document.getElementById("standaloneSize").addEventListener("input", (e) => {
@@ -3896,6 +3901,49 @@
     a.click();
     showToast("Triggered a save of " + filename + " - check Downloads. Nothing there? Use Copy or Open in New Tab instead.");
   });
+  // Rasterizes the Standalone SVG (real baked colors, not currentColor -
+  // a raster image has no way to inherit a CSS color the way an inlined
+  // SVG can) into PNG/WebP at the Export size above. Loads the SVG as
+  // an <img> (Blob URL, not a data: URI - keeps this working for icons
+  // with long/complex markup that could hit a data-URI length limit in
+  // some browsers) into an offscreen <canvas> sized to match, then reads
+  // it back out as the target raster format. Canvas starts fully
+  // transparent and nothing here fills a background, so any area the
+  // icon doesn't actually draw over stays transparent in the output -
+  // exactly the "keep transparency where applicable" ask.
+  function rasterizeStandaloneExport(mimeType, ext) {
+    const { full } = wrapSvgDocument(optimizedExportMarkup(), "standalone");
+    const vb = project.viewBox;
+    const w = standaloneExportPx, h = Math.round((standaloneExportPx * vb.h) / vb.w);
+    const svgBlob = new Blob([full], { type: "image/svg+xml;charset=utf-8" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(svgUrl);
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          showAlert("This browser couldn't produce a ." + ext + " file - try the other raster format, or Download .svg and convert it elsewhere.");
+          return;
+        }
+        const filename = project.activeKey + "-standalone." + ext;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        showToast("Triggered a save of " + filename + " - check Downloads.");
+      }, mimeType);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(svgUrl);
+      showAlert("Couldn't rasterize this icon - the Standalone SVG itself failed to load as an image.");
+    };
+    img.src = svgUrl;
+  }
+  document.getElementById("downloadPngBtn").addEventListener("click", () => rasterizeStandaloneExport("image/png", "png"));
+  document.getElementById("downloadWebpBtn").addEventListener("click", () => rasterizeStandaloneExport("image/webp", "webp"));
   // Downloads (the `download` attribute above) ask the browser to save
   // a file directly, which some hosting contexts (including this one,
   // apparently) can silently refuse with no error and no visible sign
