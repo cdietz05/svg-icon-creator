@@ -440,8 +440,14 @@
   .handle-diamond { fill: var(--surface); stroke: var(--accent-2); stroke-width: 0.12; pointer-events: none; }
   .handle-rotate { fill: var(--surface); stroke: var(--accent); stroke-width: 0.16; pointer-events: none; }
   .handle-bend { fill: var(--surface); stroke: var(--accent-2); stroke-width: 0.16; pointer-events: none; }
-  .handle-radius { fill: var(--select); stroke: var(--surface); stroke-width: 0.12; pointer-events: none; }
   .handle-guide { stroke: var(--accent-2); stroke-width: 0.08; opacity: 0.6; pointer-events: none; }
+  /* A short curved stroke (not a filled dot) - it sits at a FIXED offset
+     from the corner rather than tracking the fillet's own tip (see
+     cornerRadiusGlyphPos), so it no longer creeps toward/away from the
+     real resize/anchor handles as the radius grows, and stays a small,
+     easy-to-distinguish target next to them instead of drifting on top. */
+  .handle-radius { fill: none; stroke: var(--select); stroke-width: 0.16; stroke-linecap: round; pointer-events: none; }
+  [data-handle^="radius-"]:hover + .handle-radius { stroke: var(--accent-2); stroke-width: 0.26; }
   .bool-outline-back { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.9 0.5; pointer-events: none; }
   .bool-outline-front { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.3 0.35; pointer-events: none; }
   .multi-outline { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-width: 0.14; stroke-dasharray: 0.5 0.35; pointer-events: none; }
@@ -776,6 +782,7 @@
         <option value="square" selected>Square</option>
         <option value="isometric">Isometric</option>
       </select>
+      <label title="Snap increment, in viewBox units - smaller values allow finer, more precise placement and drags">Grid Scale <input type="number" id="gridStepInput" value="0.5" min="0.05" max="8" step="0.05" style="width:52px"></label>
     </div>
     <div class="tool-group toolbar-extra">
       <button id="zoomOut" title="Zoom out">−</button>
@@ -1246,17 +1253,34 @@
   function maxCornerRadius(anchors, i, closed) {
     return cornerBisector(anchors, i, closed).edgeMin / 2;
   }
-  // Where the handle itself is drawn - proportional to whatever radius
-  // is actually in effect right now (this anchor's own override, or
-  // the shape's default), so the handle's distance from the corner
-  // always visually matches how rounded it currently looks, not just
-  // the override state.
-  function cornerHandlePos(anchors, i, closed, shapeDefaultR) {
+  // Where the little Corner Radius glyph itself sits - a FIXED small
+  // offset from the corner along its bisector, deliberately NOT
+  // proportional to the radius currently in effect (unlike an earlier
+  // version of this, cornerHandlePos, which put the handle right at the
+  // fillet's own tip). That made the handle creep toward the shape's
+  // real resize/anchor handles as a corner got more rounded, and once
+  // it landed close to one, whichever was on top ate the click. Staying
+  // put means only the fillet itself moves as the radius changes - the
+  // little control glyph next to the corner never does.
+  function cornerRadiusGlyphPos(anchors, i, closed) {
     const a = anchors[i];
     const bis = cornerBisector(anchors, i, closed);
-    const effectiveR = a.r != null ? a.r : (shapeDefaultR || 0);
-    const dist = Math.max(effectiveR, bis.edgeMin * 0.15);
-    return { x: a.x + bis.x * dist, y: a.y + bis.y * dist };
+    const desired = clamp(11 / zoom, 0.25, 3);
+    const dist = Math.min(desired, Math.max(0.12, bis.edgeMin * 0.4));
+    return { x: a.x + bis.x * dist, y: a.y + bis.y * dist, bis, dist };
+  }
+  // A short curved stroke (not a filled dot, see the .handle-radius CSS)
+  // bowed back toward the corner so it actually reads as a rounding cue.
+  function cornerRadiusGlyphMarkup(g, i) {
+    const bis = g.bis;
+    const px = -bis.y, py = bis.x;
+    const half = clamp(3 / zoom, 0.08, g.dist * 0.75);
+    const p1x = g.x + px * half, p1y = g.y + py * half;
+    const p2x = g.x - px * half, p2y = g.y - py * half;
+    const bow = half * 0.9;
+    const ctrlx = g.x - bis.x * bow, ctrly = g.y - bis.y * bow;
+    return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR()) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
+      '<path d="M ' + fmt(p1x) + ' ' + fmt(p1y) + ' Q ' + fmt(ctrlx) + ' ' + fmt(ctrly) + ' ' + fmt(p2x) + ' ' + fmt(p2y) + '" class="handle-radius"/>';
   }
 
   function parsePathD(d) {
@@ -2480,7 +2504,7 @@
     const localX = fromX - before.left, localY = fromY - before.top;
     const ratio = newZoom / zoom;
     zoom = newZoom;
-    render();
+    renderCanvasTransform();
     const after = svgRoot.getBoundingClientRect();
     // Where the content that was at (fromX, fromY) landed post-zoom, if
     // scroll hadn't moved - nudge scroll by exactly how far off-target
@@ -3638,6 +3662,10 @@
   document.getElementById("snapToggle").addEventListener("change", (e) => { snapEnabled = e.target.checked; });
   document.getElementById("gridToggle").addEventListener("change", (e) => { showGrid = e.target.checked; render(); });
   document.getElementById("gridMode").addEventListener("change", (e) => { gridMode = e.target.value; render(); });
+  document.getElementById("gridStepInput").addEventListener("change", (e) => {
+    gridStep = clamp(+e.target.value || 0.5, 0.05, 8);
+    e.target.value = gridStep;
+  });
   document.getElementById("defaultStrokeWidth").addEventListener("change", (e) => { defaultStrokeWidth = Math.max(0.2, +e.target.value || 1.6); });
   document.getElementById("freehandSmoothing").addEventListener("input", (e) => {
     freehandSmoothing = +e.target.value;
@@ -4108,9 +4136,9 @@
             // every other corner - see applyHandleDrag's "radius-"
             // branch and pathD's per-corner cornerR() resolution.
             if (pathCornerEligible(s.anchors, i, s.closed)) {
-              const hp = cornerHandlePos(s.anchors, i, s.closed, s.cornerRadius);
-              parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(hp.x) + '" y2="' + fmt(hp.y) + '" class="handle-guide"/>');
-              parts.push(handleMarkup(hp.x, hp.y, "radius-" + i, "handle-radius"));
+              const gp = cornerRadiusGlyphPos(s.anchors, i, s.closed);
+              parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(gp.x) + '" y2="' + fmt(gp.y) + '" class="handle-guide"/>');
+              parts.push(cornerRadiusGlyphMarkup(gp, i));
             }
           });
         } else if (s.type === "compound") {
@@ -4594,9 +4622,21 @@
     const input = document.getElementById("radiusHudInput");
     if (document.activeElement !== input) input.value = fmt(effective);
   }
-  function render() {
-    boolSet = boolSet.filter((id) => !!getShapeById(id));
-    multiSelect = multiSelect.filter((id) => !!getShapeById(id));
+  // Everything that's actually affected by pan/zoom: the SVG's own
+  // viewBox/width/height, the zoom label, the grid (its boundary-marker
+  // stroke-width is computed in screen px, see renderGrid), and the
+  // selection/handle overlay (handle sizes are also computed in screen
+  // px, see handleHitR/handleVisR - genuinely need to shrink/grow as
+  // zoom changes so they stay a constant on-screen size). Nothing else
+  // in render() below depends on pan or zoom at all - shape geometry is
+  // defined in unchanging viewBox units and the browser scales it via
+  // the viewBox automatically, no JS recompute needed. Split out so a
+  // live pinch-zoom/pan gesture (one call per touchmove, i.e. potentially
+  // dozens of times a second) doesn't also rebuild the icon list
+  // thumbnails, properties panel, preview swatches, and export text on
+  // every single frame - that full render() was the actual source of
+  // the reported jitter/lag, not the zoom math itself.
+  function renderCanvasTransform() {
     const { w, h } = project.viewBox;
     // The rendered SVG is bigger than the icon's own true w x h - see
     // canvasClampBounds/clampToCanvasMargin above for why. Export/
@@ -4611,8 +4651,13 @@
     document.getElementById("vbW").value = w;
     document.getElementById("vbH").value = h;
     renderGrid();
-    renderShapesLayer();
     renderUI();
+  }
+  function render() {
+    boolSet = boolSet.filter((id) => !!getShapeById(id));
+    multiSelect = multiSelect.filter((id) => !!getShapeById(id));
+    renderCanvasTransform();
+    renderShapesLayer();
     renderIconList();
     renderLayerList();
     renderProperties();
