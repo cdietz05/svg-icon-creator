@@ -210,6 +210,7 @@
   }
 
   #iconList { padding: 6px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+  #layerList { padding: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 130px; overflow-y: auto; }
 
   .icon-row {
     display: flex;
@@ -444,6 +445,13 @@
       <div id="iconList"></div>
       <div class="stack" style="border-top:1px solid var(--border)">
         <button id="addIconBtn">+ Add Icon</button>
+      </div>
+      <div class="stack" style="border-top:1px solid var(--border)">
+        <div class="panel-head" style="padding-left:0" title="Knockouts only cut shapes on their own layer. Draw on a layer above another to sit on top of its knockouts untouched.">Layers</div>
+        <div id="layerList"></div>
+        <div class="btn-row">
+          <button id="addLayerBtn">+ Add Layer</button>
+        </div>
       </div>
       <div class="stack" style="border-top:1px solid var(--border); margin-top:auto">
         <div class="panel-head" style="padding-left:0">Project</div>
@@ -1544,9 +1552,18 @@
       '<path d="' + cutterD + '" fill="#000" fill-rule="nonzero"/></mask>' +
       '<g mask="url(#' + maskId + ')">' + normalMarkup + "</g>";
   }
-  function shapesMarkup(arr) {
-    const normal = arr.filter((s) => !s.knockout);
-    return applyKnockoutMask(normal.map(shapeMarkup).join("\n  "), arr);
+  // `layers` (icon.layers, later = on top) scopes each knockout mask to
+  // its own layer - a knockout only cuts shapes sharing its layer, so a
+  // shape on a layer above sits fully intact over a knockout below it.
+  // Falls back to one implicit layer when omitted/empty (old callers,
+  // un-migrated data) - identical output to the pre-layers behavior.
+  function shapesMarkup(arr, layers) {
+    const groups = layers && layers.length ? layers : [{ id: "__all__" }];
+    return groups.map((layer) => {
+      const layerShapes = arr.filter((s) => (s.layer || groups[0].id) === layer.id);
+      const normal = layerShapes.filter((s) => !s.knockout);
+      return applyKnockoutMask(normal.map(shapeMarkup).join("\n  "), layerShapes);
+    }).join("\n  ");
   }
 
   function hitTargetMarkup(s) {
@@ -1782,8 +1799,29 @@
   function shapes() { return activeIcon().shapes; }
   function getShapeById(id) { return shapes().find((s) => s.id === id); }
 
+  // Lazily backfills icon.layers for icons saved before layers existed
+  // (fresh seed icons, older localStorage projects, imported markup) -
+  // one implicit "Layer 1" holding every shape that has no layer yet,
+  // so nothing visually changes until the user actually adds a layer.
+  function ensureIconLayers(icon) {
+    if (!icon.layers || !icon.layers.length) icon.layers = [{ id: uid(), name: "Layer 1" }];
+    const defaultId = icon.layers[0].id;
+    icon.shapes.forEach((s) => { if (!s.layer) s.layer = defaultId; });
+    return icon.layers;
+  }
+
   // ---------- interaction state (not persisted) ----------
   let tool = "select";
+  // Layer newly-drawn shapes get stamped with. Not persisted - just
+  // self-heals to the active icon's top layer whenever it's stale
+  // (switched icon, or never set), so no reset wiring is needed at
+  // icon-switch/add-icon call sites.
+  let activeLayerId = null;
+  function currentLayerId() {
+    const layers = ensureIconLayers(activeIcon());
+    if (!layers.some((l) => l.id === activeLayerId)) activeLayerId = layers[layers.length - 1].id;
+    return activeLayerId;
+  }
   let selectedId = null;
   let dragMode = null;
   let dragStart = null;
@@ -1970,7 +2008,7 @@
     if (tool === "rect" || tool === "ellipse" || tool === "line") {
       const sp = snapPt(p);
       dragMode = "draw"; dragStart = sp;
-      const base = { id: uid(), style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0 };
+      const base = { id: uid(), style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, layer: currentLayerId() };
       if (tool === "rect") draftShape = { ...base, type: "rect", x: sp.x, y: sp.y, w: 0, h: 0, rx: 0 };
       if (tool === "ellipse") draftShape = { ...base, type: "ellipse", cx: sp.x, cy: sp.y, rx: 0, ry: 0 };
       if (tool === "line") draftShape = { ...base, type: "line", x1: sp.x, y1: sp.y, x2: sp.x, y2: sp.y };
@@ -2231,7 +2269,7 @@
         const ptsForAnchors = closed ? simplified.slice(0, -1) : simplified;
         const anchors = pointsToSmoothAnchors(ptsForAnchors, closed);
         if (anchors.length >= 2) {
-          const shape = { id: uid(), type: "path", style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, closed, anchors };
+          const shape = { id: uid(), type: "path", style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, closed, anchors, layer: currentLayerId() };
           shapes().push(shape);
           selectedId = shape.id;
           pushHistory(); saveProject();
@@ -2274,7 +2312,7 @@
 
   function commitPenDraft() {
     if (!penDraft || penDraft.anchors.length < 2) { penDraft = null; penPendingDrag = null; render(); return; }
-    const shape = { id: uid(), type: "path", style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, closed: penDraft.closed, anchors: penDraft.anchors };
+    const shape = { id: uid(), type: "path", style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, closed: penDraft.closed, anchors: penDraft.anchors, layer: currentLayerId() };
     shapes().push(shape);
     selectedId = shape.id;
     penDraft = null; penPendingDrag = null;
@@ -2391,7 +2429,7 @@
     // painted with fill-rule nonzero, exactly how they already render
     // normally) before compositing, so self-overlap in either one is
     // never confused with the back/front intersection.
-    const compound = { id: uid(), type: "compound", d: backD + " " + frontD, clipD: backD, frontD: frontD, style: back.style === "outline" ? "filled" : back.style, strokeWidth: back.strokeWidth || 1.6 };
+    const compound = { id: uid(), type: "compound", d: backD + " " + frontD, clipD: backD, frontD: frontD, style: back.style === "outline" ? "filled" : back.style, strokeWidth: back.strokeWidth || 1.6, layer: back.layer };
     const arr = shapes();
     [backId, frontId].forEach((id) => {
       const idx = arr.findIndex((s) => s.id === id);
@@ -2426,7 +2464,7 @@
     if (filled.length >= 2) {
       const ds = filled.map(shapeToRawD).filter(Boolean);
       if (ds.length >= 2) {
-        const compound = { id: uid(), type: "compound", op: "union", d: ds.join(" "), style: filled[0].style, strokeWidth: filled[0].strokeWidth || 1.6 };
+        const compound = { id: uid(), type: "compound", op: "union", d: ds.join(" "), style: filled[0].style, strokeWidth: filled[0].strokeWidth || 1.6, layer: filled[0].layer };
         filled.forEach((sh) => { const idx = arr.findIndex((x) => x.id === sh.id); if (idx >= 0) arr.splice(idx, 1); });
         arr.push(compound);
         unionId = compound.id;
@@ -2661,6 +2699,16 @@
     selectedId = null;
     boolSet = [];
     multiSelect = [];
+    pushHistory(); saveProject(); render();
+  });
+
+  document.getElementById("addLayerBtn").addEventListener("click", async () => {
+    const name = await showPrompt('New layer name (e.g. "Front"):', "");
+    if (!name || !name.trim()) return;
+    const layers = ensureIconLayers(activeIcon());
+    const newLayer = { id: uid(), name: name.trim() };
+    layers.push(newLayer);
+    activeLayerId = newLayer.id;
     pushHistory(); saveProject(); render();
   });
 
@@ -2915,7 +2963,7 @@
       const icon = project.icons[key];
       rows.push(
         '<div class="icon-row' + (key === project.activeKey ? " active" : "") + '" data-key="' + key + '">' +
-        '<svg viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '" class="icon-row-thumb">' + shapesMarkup(icon.shapes) + "</svg>" +
+        '<svg viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '" class="icon-row-thumb">' + shapesMarkup(icon.shapes, ensureIconLayers(icon)) + "</svg>" +
         '<span class="icon-row-name">' + icon.name + "</span>" +
         '<span class="icon-row-count">' + icon.shapes.length + "</span>" +
         '<button class="icon-row-del" data-del="' + key + '" title="Delete icon">✕</button>' +
@@ -2946,6 +2994,59 @@
     });
   }
 
+  // Layers scope knockouts (a knockout only cuts shapes on its own
+  // layer - see shapesMarkup/renderShapesLayer) and control draw
+  // order (later in icon.layers = rendered on top). Listed top-first
+  // to match that stacking. Clicking a row just changes which layer
+  // NEWLY drawn shapes land on (currentLayerId()) - it doesn't touch
+  // the canvas, so it re-renders only this list, not the full render().
+  function renderLayerList() {
+    const list = document.getElementById("layerList");
+    const icon = activeIcon();
+    const layers = ensureIconLayers(icon);
+    const active = currentLayerId();
+    const counts = {};
+    icon.shapes.forEach((s) => { counts[s.layer] = (counts[s.layer] || 0) + 1; });
+    const rows = layers.slice().reverse().map((layer) =>
+      '<div class="icon-row' + (layer.id === active ? " active" : "") + '" data-layer="' + layer.id + '">' +
+      '<span class="icon-row-name">' + layer.name + "</span>" +
+      '<span class="icon-row-count">' + (counts[layer.id] || 0) + "</span>" +
+      (layers.length > 1 ? '<button class="icon-row-del" data-del-layer="' + layer.id + '" title="Delete layer">✕</button>' : "") +
+      "</div>"
+    );
+    list.innerHTML = rows.join("");
+    list.querySelectorAll(".icon-row").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.classList.contains("icon-row-del")) return;
+        activeLayerId = row.dataset.layer;
+        renderLayerList();
+      });
+      const nameEl = row.querySelector(".icon-row-name");
+      nameEl.addEventListener("dblclick", async (e) => {
+        e.stopPropagation();
+        const layer = layers.find((l) => l.id === row.dataset.layer);
+        const name = await showPrompt("Rename layer:", layer.name);
+        if (!name || !name.trim()) return;
+        layer.name = name.trim();
+        pushHistory(); saveProject(); render();
+      });
+    });
+    list.querySelectorAll(".icon-row-del").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const layerId = btn.dataset.delLayer;
+        const idx = layers.findIndex((l) => l.id === layerId);
+        const target = layers[idx === 0 ? 1 : idx - 1];
+        const ok = await showConfirm('Delete "' + layers[idx].name + '"? Its shapes move to "' + target.name + '".');
+        if (!ok) return;
+        icon.shapes.forEach((s) => { if (s.layer === layerId) s.layer = target.id; });
+        layers.splice(idx, 1);
+        if (activeLayerId === layerId) activeLayerId = target.id;
+        pushHistory(); saveProject(); render();
+      });
+    });
+  }
+
   // A shape is "on top" if its own bounding box overlaps any shape
   // earlier in the same array (z-order == array order everywhere else
   // in this tool, e.g. front/back reorder buttons just move array
@@ -2962,9 +3063,15 @@
   const SHADE_PALETTE = ["#ffffff", "#dbe4ff", "#ffe1e1", "#dcffe4", "#fff3d1", "#e6d9ff", "#d1f5ff", "#ffe0f0"];
   function renderShapesLayer() {
     const arr = shapes();
-    const normal = arr.filter((s) => !s.knockout);
-    const markup = normal.map((s, i) => '<g style="color:' + SHADE_PALETTE[i % SHADE_PALETTE.length] + '">' + shapeMarkup(s) + "</g>").join("\n  ");
-    document.getElementById("shapesLayer").innerHTML = applyKnockoutMask(markup, arr);
+    const layers = ensureIconLayers(activeIcon());
+    let shadeIdx = 0;
+    const markup = layers.map((layer) => {
+      const layerShapes = arr.filter((s) => (s.layer || layers[0].id) === layer.id);
+      const normal = layerShapes.filter((s) => !s.knockout);
+      const inner = normal.map((s) => '<g style="color:' + SHADE_PALETTE[shadeIdx++ % SHADE_PALETTE.length] + '">' + shapeMarkup(s) + "</g>").join("\n  ");
+      return applyKnockoutMask(inner, layerShapes);
+    }).join("\n  ");
+    document.getElementById("shapesLayer").innerHTML = markup;
   }
 
   function renderUI() {
@@ -3137,6 +3244,12 @@
     const s = getShapeById(selectedId);
     if (!s || tool !== "select") { panel.innerHTML = '<p class="muted">Pick a tool above and draw, or select a shape to edit it.</p>'; return; }
     let html = '<div class="prop-row"><label>Type</label><span style="font-family:var(--mono); font-size:11px;">' + s.type + "</span></div>";
+    const propLayers = ensureIconLayers(activeIcon());
+    if (propLayers.length > 1) {
+      html += '<div class="prop-row"><label>Layer</label><select id="propLayer">' +
+        propLayers.map((l) => '<option value="' + l.id + '"' + ((s.layer || propLayers[0].id) === l.id ? " selected" : "") + ">" + l.name + "</option>").join("") +
+        "</select></div>";
+    }
     if (s.type !== "line") {
       html += '<div class="prop-row"><label>Style</label><select id="propStyle">' +
         '<option value="outline"' + (s.style === "outline" ? " selected" : "") + ">Outline</option>" +
@@ -3190,6 +3303,8 @@
     if (skewYInput) skewYInput.addEventListener("change", () => { s.skewY = clamp(+skewYInput.value || 0, -80, 80); pushHistory(); saveProject(); render(); });
     const knockoutBox = document.getElementById("propKnockout");
     if (knockoutBox) knockoutBox.addEventListener("change", () => { s.knockout = knockoutBox.checked; pushHistory(); saveProject(); render(); });
+    const layerSel = document.getElementById("propLayer");
+    if (layerSel) layerSel.addEventListener("change", () => { s.layer = layerSel.value; pushHistory(); saveProject(); render(); });
     document.getElementById("propFront").addEventListener("click", () => reorderShape(s.id, "front"));
     document.getElementById("propBack").addEventListener("click", () => reorderShape(s.id, "back"));
     document.getElementById("propDuplicate").addEventListener("click", duplicateSelected);
@@ -3216,7 +3331,7 @@
   }
 
   function renderPreview() {
-    const markup = shapesMarkup(shapes());
+    const markup = shapesMarkup(shapes(), ensureIconLayers(activeIcon()));
     const vb = "0 0 " + project.viewBox.w + " " + project.viewBox.h;
     ["22", "56", "96"].forEach((size) => {
       const box = document.getElementById("preview-" + size);
@@ -3379,10 +3494,10 @@
       return "<defs>\n" + Object.keys(project.icons).map((key) => {
         const icon = project.icons[key];
         return '<symbol id="i-' + key.toLowerCase() + '" viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '">\n  ' +
-          shapesMarkup(icon.shapes) + "\n</symbol>";
+          shapesMarkup(icon.shapes, ensureIconLayers(icon)) + "\n</symbol>";
       }).join("\n\n") + "\n</defs>";
     }
-    const raw = shapesMarkup(shapes());
+    const raw = shapesMarkup(shapes(), ensureIconLayers(activeIcon()));
     return mode === "standalone" ? bakeStandaloneColor(raw) : raw;
   }
   // Same optimizer, applied per-<symbol> so mask/clip ids stay unique
@@ -3394,10 +3509,10 @@
       return "<defs>\n" + Object.keys(project.icons).map((key) => {
         const icon = project.icons[key];
         return '<symbol id="i-' + key.toLowerCase() + '" viewBox="0 0 ' + project.viewBox.w + " " + project.viewBox.h + '">\n  ' +
-          optimizeExportMarkup(shapesMarkup(icon.shapes), key + "-") + "\n</symbol>";
+          optimizeExportMarkup(shapesMarkup(icon.shapes, ensureIconLayers(icon)), key + "-") + "\n</symbol>";
       }).join("\n\n") + "\n</defs>";
     }
-    const opt = optimizeExportMarkup(shapesMarkup(shapes()), "");
+    const opt = optimizeExportMarkup(shapesMarkup(shapes(), ensureIconLayers(activeIcon())), "");
     return mode === "standalone" ? bakeStandaloneColor(opt) : opt;
   }
   function renderExport() {
@@ -3422,6 +3537,7 @@
     renderShapesLayer();
     renderUI();
     renderIconList();
+    renderLayerList();
     renderProperties();
     renderBoolPanel();
     renderPreview();
