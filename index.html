@@ -18,6 +18,14 @@
     --border: #dcdcdf;
     --text: #18181a;
     --text-muted: #67676b;
+    /* The artboard's own background, separate from --surface (used for
+       panels/chrome, which should stay light) - editor-canvas shapes
+       get shaded with near-white pastels (see SHADE_PALETTE) so
+       overlapping shapes stay distinguishable, and those wash out to
+       near-invisible against a plain white --surface background. Dark
+       mode doesn't need its own override - its already-dark --surface
+       gives that same palette plenty of contrast on its own. */
+    --canvas-bg: #9a9a9e;
     --accent: #2f5fd6;
     --accent-ink: #ffffff;
     --accent-2: #b8720f;
@@ -37,6 +45,10 @@
       --border: #3a3a3e;
       --text: #f0f0f1;
       --text-muted: #97979c;
+      /* Overrides the light-mode grey back to plain --surface - dark
+         mode's already-dark surface gives SHADE_PALETTE's near-white
+         shapes plenty of contrast without a separate tone. */
+      --canvas-bg: var(--surface);
       --accent: #6f9bff;
       --accent-ink: #0d1220;
       --accent-2: #ffb454;
@@ -53,6 +65,7 @@
     --border: #3a3a3e;
     --text: #f0f0f1;
     --text-muted: #97979c;
+    --canvas-bg: var(--surface);
     --accent: #6f9bff;
     --accent-ink: #0d1220;
     --accent-2: #ffb454;
@@ -388,7 +401,7 @@
   }
 
   #artboard {
-    background: var(--surface);
+    background: var(--canvas-bg);
     box-shadow: 0 0 0 1px var(--border), 0 8px 24px rgba(0,0,0,0.25);
     touch-action: none;
     cursor: crosshair;
