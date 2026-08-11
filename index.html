@@ -719,6 +719,7 @@
           <label><input type="radio" name="exportMode" value="all"> All icons</label>
           <label><input type="radio" name="exportMode" value="standalone" title="Bakes an explicit color into fill/stroke instead of currentColor, and skips nothing else this tool relies on being modern - viewable standalone in an <img> tag, an old browser, or any SVG viewer, not just inlined in a page that can supply currentColor via CSS."> Standalone</label>
         </div>
+        <p class="muted" style="font-size:10.5px;"><b>This icon</b>/<b>All icons</b> always export single-color (plain <code>currentColor</code>) - the app embedding it themes it via CSS. <b>Standalone</b> (and the .png/.webp export below it) bakes in whatever colors are actually set here - any shape's own Custom color, or its layer's, from the canvas/preview - so those keep every color you see on screen.</p>
         <div class="prop-row" id="standaloneSizeRow" style="display:none">
           <label>Export size</label>
           <input type="number" id="standaloneSize" min="16" max="4096" step="1" value="1024"> px
@@ -3532,7 +3533,7 @@
     const vb = project.viewBox;
     popoutWin.document.title = activeIcon().name + " - Live Preview";
     host.innerHTML = '<svg viewBox="0 0 ' + vb.w + " " + vb.h + '" style="width:100%; height:100%; color:#6ee7ff;">' +
-      shapesMarkup(shapes(), iconLayers(activeIcon())) + "</svg>";
+      shapesMarkupWithColor(shapes(), iconLayers(activeIcon()), null) + "</svg>";
   }
   // Drawing toolbar - starts DOCKED (a plain bar at the top of the
   // canvas), can be undocked into a floating/draggable/resizable panel
@@ -4184,8 +4185,20 @@
   // tint (which only recolored a shape when it happened to sit over
   // another one) with something that separates EVERY shape at a
   // glance, stacked or not. Never touches shapeMarkup/shapesMarkup
-  // itself, so Export/Preview still render true currentColor.
+  // itself, so icon export ("This icon"/"All icons") still renders true
+  // currentColor - only Standalone/PNG/WebP export and the canvas/
+  // preview honor a real per-shape/per-layer color (see shapeDisplayColor).
   const SHADE_PALETTE = ["#ffffff", "#dbe4ff", "#ffe1e1", "#dcffe4", "#fff3d1", "#e6d9ff", "#d1f5ff", "#ffe0f0"];
+  // A shape's own color override wins over its layer's, which wins over
+  // nothing (null - stays pure currentColor, the icon-export default).
+  // Shared by the canvas, the preview swatches, and Standalone/raster
+  // export so all three always agree on what a shape actually looks
+  // like once colored - only their FALLBACK when nothing is set differs
+  // (editor shade tint vs. inherited currentColor vs. a guaranteed
+  // solid default for a truly standalone file).
+  function shapeDisplayColor(s, layer) {
+    return s.color || (layer && layer.color) || null;
+  }
   function renderShapesLayer() {
     const arr = shapes();
     const layers = iconLayers(activeIcon());
@@ -4193,7 +4206,10 @@
     const markup = layers.map((layer) => {
       const layerShapes = arr.filter((s) => (s.layer || layers[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
-      const inner = normal.map((s) => '<g style="color:' + SHADE_PALETTE[shadeIdx++ % SHADE_PALETTE.length] + '">' + shapeMarkup(s) + "</g>").join("\n  ");
+      const inner = normal.map((s) => {
+        const color = shapeDisplayColor(s, layer) || SHADE_PALETTE[shadeIdx++ % SHADE_PALETTE.length];
+        return '<g style="color:' + color + '">' + shapeMarkup(s) + "</g>";
+      }).join("\n  ");
       return applyKnockoutMask(inner, layerShapes);
     }).join("\n  ");
     document.getElementById("shapesLayer").innerHTML = markup;
@@ -4450,6 +4466,10 @@
         propLayers.map((l) => '<option value="' + l.id + '"' + ((s.layer || propLayers[0].id) === l.id ? " selected" : "") + ">" + l.name + "</option>").join("") +
         "</select></div>";
     }
+    html += '<div class="prop-row"><label title="Overrides currentColor for THIS shape - shows live in the canvas/preview and carries into Standalone/PNG/WebP export. Icon export (This icon/All icons) always stays currentColor regardless, so the icon is still themable by whatever app embeds it.">Custom color</label><input id="propColorToggle" type="checkbox"' + (s.color ? " checked" : "") + "></div>";
+    if (s.color) {
+      html += '<div class="prop-row"><label></label><input id="propColor" type="color" value="' + s.color + '"></div>';
+    }
     if (s.type !== "line") {
       html += '<div class="prop-row"><label>Style</label><select id="propStyle">' +
         '<option value="outline"' + (s.style === "outline" ? " selected" : "") + ">Outline</option>" +
@@ -4497,6 +4517,26 @@
     }
     panel.innerHTML = html;
 
+    const colorToggle = document.getElementById("propColorToggle");
+    if (colorToggle) {
+      colorToggle.addEventListener("change", () => {
+        if (colorToggle.checked) s.color = s.color || "#000000";
+        else delete s.color;
+        pushHistory(); saveProject(); render();
+      });
+    }
+    const colorInput = document.getElementById("propColor");
+    if (colorInput) {
+      // "input" (not "change") for live feedback while dragging the
+      // color wheel - same reasoning as propCornerRadius above, only
+      // touches the canvas/preview/export text, never a full render(),
+      // so it can't steal focus back out of this very picker.
+      colorInput.addEventListener("input", () => {
+        s.color = colorInput.value;
+        renderShapesLayer(); renderPreview(); renderExport();
+      });
+      colorInput.addEventListener("change", () => { pushHistory(); saveProject(); });
+    }
     const sw = document.getElementById("propStrokeWidth");
     if (sw) sw.addEventListener("change", () => { s.strokeWidth = Math.max(0.2, +sw.value || 1.6); pushHistory(); saveProject(); render(); });
     const styleSel = document.getElementById("propStyle");
@@ -4596,15 +4636,25 @@
   // per target is trivially cheap at these shape counts.
   function renderPreview() {
     const vb = "0 0 " + project.viewBox.w + " " + project.viewBox.h;
+    // Null fallback (not a real color) - a shape/layer with no override
+    // stays wrapped in nothing, exactly like plain shapesMarkup(), so it
+    // keeps inheriting the swatch's own CSS accent color same as always.
+    // Only shapes that actually HAVE a custom color show it here, live -
+    // this is the "preview colors" this tool now also carries through
+    // to Standalone/PNG/WebP export. Called fresh for every target, not
+    // shared/reused - a compound shape's mask/clipPath ids are freshly
+    // random per call (see shapeMarkup), so reusing one call's markup
+    // across multiple SVG roots via .innerHTML would leave duplicate
+    // ids across the document, exactly the Cut-tool bug fixed earlier.
     ["22", "56", "96"].forEach((size) => {
       const box = document.getElementById("preview-" + size);
       box.setAttribute("viewBox", vb);
-      box.innerHTML = shapesMarkup(shapes(), iconLayers(activeIcon()));
+      box.innerHTML = shapesMarkupWithColor(shapes(), iconLayers(activeIcon()), null);
     });
     const floatBox = document.getElementById("preview-float");
     if (floatBox) {
       floatBox.setAttribute("viewBox", vb);
-      floatBox.innerHTML = shapesMarkup(shapes(), iconLayers(activeIcon()));
+      floatBox.innerHTML = shapesMarkupWithColor(shapes(), iconLayers(activeIcon()), null);
     }
     updatePopoutPreview();
   }
@@ -4730,27 +4780,35 @@
     });
     return new XMLSerializer().serializeToString(root).replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, "");
   }
-  // "Standalone" export mode bakes an explicit color into fill/stroke
-  // in place of currentColor, PER LAYER (icon.layers[i].color, default
-  // black) - each layer's shapes get wrapped in their own <g
-  // style="color:X">, the exact same "set color on an ancestor, let
-  // currentColor cascade down" mechanism renderShapesLayer's own
-  // per-shape shading already relies on. That cascade is resolved
-  // entirely within the SVG's own document tree, so - unlike relying on
-  // a HOST PAGE to supply `color` via inline embedding - it works
-  // identically in an <img src>, a CSS background-image, or any
-  // standalone/old SVG viewer opening the file directly, with nothing
-  // external required. Only ever used for standalone export - This
-  // icon/All icons modes keep bare currentColor untouched, since those
-  // are meant to be embedded and CSS-themed by the consuming app.
-  function shapesMarkupStandalone(arr, layers) {
+  // Bakes an explicit color into fill/stroke in place of currentColor -
+  // a shape's own color wins over its layer's (see shapeDisplayColor),
+  // falling back to fallbackColor when NEITHER is set. Each shape (not
+  // just each layer) gets its own <g style="color:X">, the exact same
+  // "set color on an ancestor, let currentColor cascade down" mechanism
+  // renderShapesLayer's own canvas shading already relies on - resolved
+  // entirely within the SVG's own document tree, so it works identically
+  // in an <img src>, a rasterized canvas, or any standalone SVG viewer
+  // opening the file directly, with nothing external required.
+  function shapesMarkupWithColor(arr, layers, fallbackColor) {
     const groups = layers && layers.length ? layers : [{ id: "__all__" }];
     return groups.map((layer) => {
       const layerShapes = arr.filter((s) => (s.layer || groups[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
-      const inner = applyKnockoutMask(normal.map(shapeMarkup).join("\n  "), layerShapes);
-      return '<g style="color:' + (layer.color || "#000000") + '">' + inner + "</g>";
+      const inner = normal.map((s) => {
+        const color = shapeDisplayColor(s, layer) || fallbackColor;
+        return color ? '<g style="color:' + color + '">' + shapeMarkup(s) + "</g>" : shapeMarkup(s);
+      }).join("\n  ");
+      return applyKnockoutMask(inner, layerShapes);
     }).join("\n  ");
+  }
+  // "Standalone"/PNG/WebP export - guarantees a real fallback color
+  // (default black) even where nothing was explicitly set, since a
+  // truly standalone file has no host page to inherit currentColor
+  // from. This icon/All icons modes keep bare currentColor untouched -
+  // see shapesMarkup - since those are meant to be embedded and
+  // CSS-themed by the consuming app, never baked with a literal color.
+  function shapesMarkupStandalone(arr, layers) {
+    return shapesMarkupWithColor(arr, layers, "#000000");
   }
   // Raw, unoptimized markup - kept fast and cheap since this runs on
   // every render() (every drag frame); the DOM-heavy optimizer above
@@ -4799,7 +4857,11 @@
       input.addEventListener("input", () => {
         const layer = layers.find((l) => l.id === input.dataset.layer);
         if (layer) layer.color = input.value;
-        renderExport();
+        // Not just export text anymore - a layer's color is now also
+        // the fallback the live canvas/preview use for any of its
+        // shapes that don't have their own Custom color set (see
+        // shapeDisplayColor), so both need to catch up live too.
+        renderShapesLayer(); renderPreview(); renderExport();
       });
       input.addEventListener("change", () => { pushHistory(); saveProject(); });
     });
