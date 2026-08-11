@@ -1299,35 +1299,37 @@
   // at the fillet's own tip - that made the handle creep toward the
   // shape's real resize/anchor handles as a corner got more rounded).
   // Pushed noticeably farther out than a plain handle would sit (see the
-  // 0.55 edge fraction below, well past where the resize/anchor handles
+  // 0.7 edge fraction below, well past where the resize/anchor handles
   // themselves live right at the vertex) so it's not an easy accidental
-  // touch target next to them. Staying at a fixed distance also means
+  // touch target next to them - bumped again after user testing still
+  // found it too close. Staying at a fixed distance also means
   // only the fillet itself moves as the radius changes - this glyph
   // never does.
   function cornerRadiusGlyphPos(anchors, i, closed) {
     const a = anchors[i];
     const bis = trueInteriorBisector(anchors, i, closed);
-    const desired = clamp(18 / zoom, 0.45, 4.2);
-    const dist = Math.min(desired, Math.max(0.2, bis.edgeMin * 0.55));
+    const desired = clamp(24 / zoom, 0.6, 5);
+    const dist = Math.min(desired, Math.max(0.25, bis.edgeMin * 0.7));
     // Always outside the shape's own fill (negate the true interior
     // bisector), regardless of convex or reflex.
     return { x: a.x - bis.x * dist, y: a.y - bis.y * dist, bis, dist };
   }
   // A short curved stroke (not a filled dot, see the .handle-radius CSS).
-  // The bulge direction is the actual visual tell for corner type: a
-  // convex corner's real fillet bulges toward the vertex (cutting the
-  // point off), so this bows the same way; a reflex/concave corner's
-  // real fillet bulges away from the vertex (rounding a notch pushes the
-  // curve back into the shape, not toward the point), so this bows the
-  // opposite way - two genuinely different-looking glyphs, not just two
-  // different positions.
+  // The bulge direction is the actual visual tell for corner type -
+  // flipped from an earlier version of this that had it backwards: a
+  // convex corner's real fillet bulges AWAY from the vertex (the curve
+  // cuts across, away from where the point used to be), so this bows
+  // away too; a reflex/concave corner's fillet bulges toward the vertex
+  // (rounding a notch pulls the curve in toward the point), so this
+  // bows toward it - two genuinely different-looking glyphs, not just
+  // two different positions.
   function cornerRadiusGlyphMarkup(g, i) {
     const bis = g.bis;
     const px = -bis.y, py = bis.x;
     const half = clamp(4.5 / zoom, 0.14, g.dist * 0.7);
     const p1x = g.x + px * half, p1y = g.y + py * half;
     const p2x = g.x - px * half, p2y = g.y - py * half;
-    const bow = half * 0.9 * (bis.convex ? 1 : -1);
+    const bow = half * 0.9 * (bis.convex ? -1 : 1);
     const ctrlx = g.x + bis.x * bow, ctrly = g.y + bis.y * bow;
     return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR() * 1.3) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
       '<path d="M ' + fmt(p1x) + ' ' + fmt(p1y) + ' Q ' + fmt(ctrlx) + ' ' + fmt(ctrly) + ' ' + fmt(p2x) + ' ' + fmt(p2y) + '" class="handle-radius"/>';
@@ -4191,7 +4193,18 @@
           parts.push('<rect x="' + fmt(b.x) + '" y="' + fmt(b.y) + '" width="' + fmt(b.w) + '" height="' + fmt(b.h) + '" class="selection-outline"/>');
           HANDLE_DEFS.forEach((hd) => parts.push(handleMarkup(b.x + b.w * hd.gx, b.y + b.h * hd.gy, hd.name)));
         } else if (s.type === "path") {
+          // While actively dragging a radius handle, every OTHER handle
+          // (anchor dots, hin/hout, every other corner's own radius
+          // glyph) is skipped entirely - not just faded - so nothing
+          // sits between you and the shape's own real fill/stroke while
+          // watching the fillet actually change. The corner being
+          // dragged doesn't need its own glyph re-drawn either - the
+          // drag itself doesn't depend on that DOM element still being
+          // there (dragHandle/dragOrigShape already captured it at
+          // pointerdown), so hiding it too keeps that same corner
+          // fully visible instead of half-covered by its own handle.
           s.anchors.forEach((a, i) => {
+            if (draggingRadius) return;
             parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hin.dx) + '" y2="' + fmt(a.y + a.hin.dy) + '" class="handle-guide"/>');
             parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hout.dx) + '" y2="' + fmt(a.y + a.hout.dy) + '" class="handle-guide"/>');
             parts.push(handleMarkup(a.x + a.hin.dx, a.y + a.hin.dy, "hin-" + i, "handle-diamond"));
