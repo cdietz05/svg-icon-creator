@@ -540,6 +540,28 @@
   .floating-preview-resize span:nth-child(3) { width: 5px; bottom: 9px; }
   .floating-preview-resize:hover span, .floating-preview-resize.dragging span { background: var(--accent-2); }
 
+  /* Small floating HUD showing the currently-active corner's own
+     radius (see radiusHudTarget) - appears the moment you grab a
+     corner's radius handle, live-updates while dragging, and stays up
+     afterward so a precise value can be typed in directly instead of
+     fine-tuning by hand. Same draggable-panel pattern as the preview/
+     toolbar, just much smaller. */
+  .floating-radius-hud {
+    position: fixed; top: 320px; left: 260px; width: 190px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    display: flex; flex-direction: column; z-index: 960; overflow: hidden;
+  }
+  .floating-radius-hud.hidden { display: none; }
+  .floating-radius-hud-head {
+    flex: none; display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--border);
+    font-family: var(--display); font-size: 12px; letter-spacing: 0.04em; color: var(--text-muted);
+    cursor: move; touch-action: none; -webkit-user-select: none; user-select: none;
+  }
+  .floating-radius-hud-body { padding: 10px 12px; display: flex; align-items: center; gap: 8px; }
+  .floating-radius-hud-body input { flex: 1; min-width: 0; }
+
   /* The drawing toolbar - starts DOCKED (a plain top-of-canvas bar, see
      .toolbar-dock below) but #floatingToolbarBody (the actual buttons -
      one shared element, moved between the two shells via appendChild,
@@ -765,6 +787,16 @@
     </div>
   </div>
   <div class="floating-preview-resize" id="floatingToolbarResize" title="Drag to resize"><span></span><span></span><span></span></div>
+</div>
+
+<div class="floating-radius-hud hidden" id="radiusHud">
+  <div class="floating-radius-hud-head" id="radiusHudHead">
+    <span>Corner Radius</span>
+    <button id="radiusHudClose" class="floating-preview-close" title="Close">✕</button>
+  </div>
+  <div class="floating-radius-hud-body">
+    <input type="number" id="radiusHudInput" min="0" step="0.1" title="This corner's own radius - drag its handle on the canvas, or type an exact value here">
+  </div>
 </div>
 
 <div id="floatingPreview" class="floating-preview hidden">
@@ -2175,7 +2207,16 @@
     } else if (s.type === "path") {
       s.anchors = orig.anchors.map((a) => {
         const p = remap(a.x, a.y);
-        return { x: p.x, y: p.y, hin: { dx: a.hin.dx * sx, dy: a.hin.dy * sy }, hout: { dx: a.hout.dx * sx, dy: a.hout.dy * sy } };
+        const next = { x: p.x, y: p.y, hin: { dx: a.hin.dx * sx, dy: a.hin.dy * sy }, hout: { dx: a.hout.dx * sx, dy: a.hout.dy * sy } };
+        // Same missing-field bug as moveShape had - a corner's own
+        // radius override was getting silently dropped on group-
+        // resize too. Scaled by the average of sx/sy (matches the
+        // same non-uniform-scale approximation scalePathD's own arc-
+        // radius handling already uses) rather than left as an
+        // absolute value, since this is a real geometric resize, not
+        // a pure translate.
+        if (a.r != null) next.r = Math.abs(a.r * (sx + sy) / 2);
+        return next;
       });
     } else if (s.type === "compound") {
       s.d = scalePathD(orig.d, oldBbox, newBbox);
@@ -2196,7 +2237,15 @@
     else if (s.type === "ellipse") { s.cx = orig.cx + dx; s.cy = orig.cy + dy; }
     else if (s.type === "line") { s.x1 = orig.x1 + dx; s.y1 = orig.y1 + dy; s.x2 = orig.x2 + dx; s.y2 = orig.y2 + dy; }
     else if (s.type === "path") {
-      s.anchors = orig.anchors.map((a) => ({ x: a.x + dx, y: a.y + dy, hin: { ...a.hin }, hout: { ...a.hout } }));
+      // r (a corner's own radius override, see pathD/applyHandleDrag)
+      // was missing here - moving a shape rebuilds every anchor from
+      // scratch, and silently dropping any field not explicitly listed
+      // is exactly how it kept resetting to the shape default on move.
+      s.anchors = orig.anchors.map((a) => {
+        const next = { x: a.x + dx, y: a.y + dy, hin: { ...a.hin }, hout: { ...a.hout } };
+        if (a.r != null) next.r = a.r;
+        return next;
+      });
     } else if (s.type === "compound") {
       s.d = translatePathD(orig.d, dx, dy);
       if (orig.clipD) s.clipD = translatePathD(orig.clipD, dx, dy);
@@ -2303,6 +2352,12 @@
     return activeLayerId;
   }
   let selectedId = null;
+  // Which corner's floating radius HUD is showing - { shapeId,
+  // anchorIndex } or null. Set on pointerdown for a "radius-N" handle
+  // (see onPointerDown), cleared by renderRadiusHud whenever that
+  // corner stops being a valid target (shape deselected/deleted, tool
+  // switched away from Select, anchor count changed).
+  let radiusHudTarget = null;
   let dragMode = null;
   let dragStart = null;
   let dragHandle = null;
@@ -2484,6 +2539,9 @@
         }
         dragMode = "handle"; dragHandle = handleName; dragStart = p;
         dragOrigShape = JSON.parse(JSON.stringify(targetShape));
+        if (handleName.indexOf("radius-") === 0) {
+          radiusHudTarget = { shapeId: targetShape.id, anchorIndex: parseInt(handleName.split("-")[1], 10) };
+        }
         // Only an UNROTATED grouped shape can initiate a group-resize -
         // its own handles are drawn un-rotated, so the raw mouse delta
         // already matches the group's (also unrotated/global) bbox
@@ -3324,6 +3382,44 @@
       evt.preventDefault();
     });
     setDocked(true);
+  })();
+  (function setUpRadiusHud() {
+    const win = document.getElementById("radiusHud");
+    const head = document.getElementById("radiusHudHead");
+    const input = document.getElementById("radiusHudInput");
+    document.getElementById("radiusHudClose").addEventListener("click", () => { radiusHudTarget = null; render(); });
+    head.addEventListener("pointerdown", (evt) => {
+      if (evt.target.closest(".floating-preview-close")) return;
+      const startX = evt.clientX, startY = evt.clientY;
+      const rect = win.getBoundingClientRect();
+      const startLeft = rect.left, startTop = rect.top;
+      head.setPointerCapture(evt.pointerId);
+      const onMove = (mv) => {
+        win.style.left = clamp(startLeft + (mv.clientX - startX), -rect.width + 60, window.innerWidth - 60) + "px";
+        win.style.top = clamp(startTop + (mv.clientY - startY), 0, window.innerHeight - 40) + "px";
+      };
+      const onUp = (up) => {
+        head.releasePointerCapture(up.pointerId);
+        head.removeEventListener("pointermove", onMove);
+        head.removeEventListener("pointerup", onUp);
+      };
+      head.addEventListener("pointermove", onMove);
+      head.addEventListener("pointerup", onUp);
+      evt.preventDefault();
+    });
+    // "input" (not "change") for live feedback while typing/dragging
+    // the spinner, same reasoning as propCornerRadius - only touches
+    // the canvas/preview, never a full render(), so it can't steal
+    // focus back out of this very field.
+    input.addEventListener("input", () => {
+      if (!radiusHudTarget) return;
+      const s = getShapeById(radiusHudTarget.shapeId);
+      const a = s && s.anchors && s.anchors[radiusHudTarget.anchorIndex];
+      if (!a) return;
+      a.r = Math.max(0, +input.value || 0);
+      renderShapesLayer(); renderUI(); renderPreview(); renderExport();
+    });
+    input.addEventListener("change", () => { pushHistory(); saveProject(); });
   })();
   (function setUpFloatingPreview() {
     const win = document.getElementById("floatingPreview");
@@ -4353,6 +4449,27 @@
     document.getElementById("exportText").value = wrapSvgDocument(rawExportMarkup(), currentExportMode()).full;
   }
 
+  // Keeps the floating radius HUD in sync with whatever corner is
+  // currently active - hides it (and clears radiusHudTarget) the
+  // moment that corner stops being a valid target: shape deselected/
+  // deleted, tool switched away from Select, or the shape no longer
+  // even has that many anchors (e.g. after an undo).
+  function renderRadiusHud() {
+    if (radiusHudTarget) {
+      const s = getShapeById(radiusHudTarget.shapeId);
+      if (!s || s.type !== "path" || tool !== "select" || selectedId !== s.id || !s.anchors[radiusHudTarget.anchorIndex]) {
+        radiusHudTarget = null;
+      }
+    }
+    const hud = document.getElementById("radiusHud");
+    if (!radiusHudTarget) { hud.classList.add("hidden"); return; }
+    hud.classList.remove("hidden");
+    const s = getShapeById(radiusHudTarget.shapeId);
+    const a = s.anchors[radiusHudTarget.anchorIndex];
+    const effective = a.r != null ? a.r : (s.cornerRadius || 0);
+    const input = document.getElementById("radiusHudInput");
+    if (document.activeElement !== input) input.value = fmt(effective);
+  }
   function render() {
     boolSet = boolSet.filter((id) => !!getShapeById(id));
     multiSelect = multiSelect.filter((id) => !!getShapeById(id));
@@ -4373,6 +4490,7 @@
     renderPreview();
     renderStandaloneColors();
     renderExport();
+    renderRadiusHud();
   }
 
   setTool("select");
