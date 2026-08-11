@@ -556,27 +556,13 @@
   .floating-preview-resize span:nth-child(3) { width: 5px; bottom: 9px; }
   .floating-preview-resize:hover span, .floating-preview-resize.dragging span { background: var(--accent-2); }
 
-  /* Small floating HUD showing the currently-active corner's own
-     radius (see radiusHudTarget) - appears the moment you grab a
-     corner's radius handle, live-updates while dragging, and stays up
-     afterward so a precise value can be typed in directly instead of
-     fine-tuning by hand. Same draggable-panel pattern as the preview/
-     toolbar, just much smaller. */
-  .floating-radius-hud {
-    position: fixed; top: 320px; left: 260px; width: 190px;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-    display: flex; flex-direction: column; z-index: 960; overflow: hidden;
-  }
-  .floating-radius-hud.hidden { display: none; }
-  .floating-radius-hud-head {
-    flex: none; display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--border);
-    font-family: var(--display); font-size: 12px; letter-spacing: 0.04em; color: var(--text-muted);
-    cursor: move; touch-action: none; -webkit-user-select: none; user-select: none;
-  }
-  .floating-radius-hud-body { padding: 10px 12px; display: flex; align-items: center; gap: 8px; }
-  .floating-radius-hud-body input { flex: 1; min-width: 0; }
+  /* Small live label shown next to the cursor while a Corner Radius
+     handle is actively being dragged - see the "radius-drag-label"
+     group pushed by renderUI. Replaced the old floating HUD panel;
+     precise numeric entry now lives in the Properties panel's Corners
+     list instead. */
+  .radius-drag-label-bg { fill: var(--surface); stroke: var(--border); }
+  .radius-drag-label-text { fill: var(--text); font-family: var(--mono); }
 
   /* The drawing toolbar - starts DOCKED (a plain top-of-canvas bar, see
      .toolbar-dock below) but #floatingToolbarBody (the actual buttons -
@@ -804,16 +790,6 @@
     </div>
   </div>
   <div class="floating-preview-resize" id="floatingToolbarResize" title="Drag to resize"><span></span><span></span><span></span></div>
-</div>
-
-<div class="floating-radius-hud hidden" id="radiusHud">
-  <div class="floating-radius-hud-head" id="radiusHudHead">
-    <span>Corner Radius</span>
-    <button id="radiusHudClose" class="floating-preview-close" title="Close">✕</button>
-  </div>
-  <div class="floating-radius-hud-body">
-    <input type="number" id="radiusHudInput" min="0" step="0.1" title="This corner's own radius - drag its handle on the canvas, or type an exact value here">
-  </div>
 </div>
 
 <div id="floatingPreview" class="floating-preview hidden">
@@ -1331,7 +1307,12 @@
     const p2x = g.x - px * half, p2y = g.y - py * half;
     const bow = half * 0.9 * (bis.convex ? -1 : 1);
     const ctrlx = g.x + bis.x * bow, ctrly = g.y + bis.y * bow;
-    return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR() * 1.3) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
+    // Standard handleHitR (not the earlier 1.3x) - the glyph now sits
+    // well clear of the corner (see cornerRadiusGlyphPos's 0.7 edge
+    // fraction), so an oversized hit box isn't needed to make it easy
+    // to grab, and was overlapping the real anchor/resize handles at
+    // the vertex right next to it.
+    return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR()) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
       '<path d="M ' + fmt(p1x) + ' ' + fmt(p1y) + ' Q ' + fmt(ctrlx) + ' ' + fmt(ctrly) + ' ' + fmt(p2x) + ' ' + fmt(p2y) + '" class="handle-radius"/>';
   }
 
@@ -1398,7 +1379,7 @@
   // move compound (boolean-result) shapes, which store a raw 'd' instead of
   // editable anchors. Arc radii/rotation/flags are left untouched.
   function translatePathD(d, dx, dy) {
-    const tokens = d.match(/[MLCAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    const tokens = d.match(/[MLCQAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
     if (!tokens) return d;
     let i = 0;
     const nextNum = () => parseFloat(tokens[i++]);
@@ -1411,6 +1392,9 @@
       } else if (cmd === "C") {
         const c1x = nextNum(), c1y = nextNum(), c2x = nextNum(), c2y = nextNum(), x = nextNum(), y = nextNum();
         out.push(cmd, fmt(c1x + dx), fmt(c1y + dy), fmt(c2x + dx), fmt(c2y + dy), fmt(x + dx), fmt(y + dy));
+      } else if (cmd === "Q") {
+        const cx = nextNum(), cy = nextNum(), x = nextNum(), y = nextNum();
+        out.push(cmd, fmt(cx + dx), fmt(cy + dy), fmt(x + dx), fmt(y + dy));
       } else if (cmd === "A") {
         const rx = nextNum(), ry = nextNum(), rot = nextNum(), large = nextNum(), sweep = nextNum(), x = nextNum(), y = nextNum();
         out.push(cmd, fmt(rx), fmt(ry), fmt(rot), large, sweep, fmt(x + dx), fmt(y + dy));
@@ -1510,7 +1494,7 @@
       const dx = x - center.x, dy = y - center.y;
       return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
     };
-    const tokens = d.match(/[MLCAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    const tokens = d.match(/[MLCQAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
     if (!tokens) return d;
     let i = 0;
     const nextNum = () => parseFloat(tokens[i++]);
@@ -1523,6 +1507,9 @@
       } else if (cmd === "C") {
         const c1 = rot(nextNum(), nextNum()), c2 = rot(nextNum(), nextNum()), e = rot(nextNum(), nextNum());
         out.push(cmd, fmt(c1.x), fmt(c1.y), fmt(c2.x), fmt(c2.y), fmt(e.x), fmt(e.y));
+      } else if (cmd === "Q") {
+        const c = rot(nextNum(), nextNum()), e = rot(nextNum(), nextNum());
+        out.push(cmd, fmt(c.x), fmt(c.y), fmt(e.x), fmt(e.y));
       } else if (cmd === "A") {
         const rx = nextNum(), ry = nextNum(), xrot = nextNum(), large = nextNum(), sweep = nextNum();
         const e = rot(nextNum(), nextNum());
@@ -1577,7 +1564,7 @@
   function skewPathD(d, skewXDeg, skewYDeg, center) {
     if (!skewXDeg && !skewYDeg) return d;
     const skew = (x, y) => skewPoint({ x, y }, center, skewXDeg, skewYDeg);
-    const tokens = d.match(/[MLCAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    const tokens = d.match(/[MLCQAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
     if (!tokens) return d;
     let i = 0;
     const nextNum = () => parseFloat(tokens[i++]);
@@ -1590,6 +1577,9 @@
       } else if (cmd === "C") {
         const c1 = skew(nextNum(), nextNum()), c2 = skew(nextNum(), nextNum()), e = skew(nextNum(), nextNum());
         out.push(cmd, fmt(c1.x), fmt(c1.y), fmt(c2.x), fmt(c2.y), fmt(e.x), fmt(e.y));
+      } else if (cmd === "Q") {
+        const c = skew(nextNum(), nextNum()), e = skew(nextNum(), nextNum());
+        out.push(cmd, fmt(c.x), fmt(c.y), fmt(e.x), fmt(e.y));
       } else if (cmd === "A") {
         const rx = nextNum(), ry = nextNum(), xrot = nextNum(), large = nextNum(), sweep = nextNum();
         const e = skew(nextNum(), nextNum());
@@ -2199,7 +2189,7 @@
     const sx = oldBbox.w > 0.0001 ? newBbox.w / oldBbox.w : 1;
     const sy = oldBbox.h > 0.0001 ? newBbox.h / oldBbox.h : 1;
     const remap = (x, y) => ({ x: newBbox.x + (x - oldBbox.x) * sx, y: newBbox.y + (y - oldBbox.y) * sy });
-    const tokens = d.match(/[MLCAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    const tokens = d.match(/[MLCQAZ]|-?\d*\.?\d+(?:e-?\d+)?/gi);
     if (!tokens) return d;
     let i = 0;
     const nextNum = () => parseFloat(tokens[i++]);
@@ -2212,6 +2202,9 @@
       } else if (cmd === "C") {
         const c1 = remap(nextNum(), nextNum()), c2 = remap(nextNum(), nextNum()), e = remap(nextNum(), nextNum());
         out.push(cmd, fmt(c1.x), fmt(c1.y), fmt(c2.x), fmt(c2.y), fmt(e.x), fmt(e.y));
+      } else if (cmd === "Q") {
+        const c = remap(nextNum(), nextNum()), e = remap(nextNum(), nextNum());
+        out.push(cmd, fmt(c.x), fmt(c.y), fmt(e.x), fmt(e.y));
       } else if (cmd === "A") {
         const rx = nextNum(), ry = nextNum(), xrot = nextNum(), large = nextNum(), sweep = nextNum();
         const e = remap(nextNum(), nextNum());
@@ -2455,12 +2448,10 @@
     return activeLayerId;
   }
   let selectedId = null;
-  // Which corner's floating radius HUD is showing - { shapeId,
-  // anchorIndex } or null. Set on pointerdown for a "radius-N" handle
-  // (see onPointerDown), cleared by renderRadiusHud whenever that
-  // corner stops being a valid target (shape deselected/deleted, tool
-  // switched away from Select, anchor count changed).
-  let radiusHudTarget = null;
+  // Whether the Properties panel's per-corner radius list is expanded -
+  // module-level since renderProperties rebuilds the panel's innerHTML
+  // on every render, which would otherwise reset it closed each time.
+  let cornersListExpanded = false;
   let dragMode = null;
   let dragStart = null;
   let dragHandle = null;
@@ -2716,9 +2707,6 @@
         }
         dragMode = "handle"; dragHandle = handleName; dragStart = p;
         dragOrigShape = JSON.parse(JSON.stringify(targetShape));
-        if (handleName.indexOf("radius-") === 0) {
-          radiusHudTarget = { shapeId: targetShape.id, anchorIndex: parseInt(handleName.split("-")[1], 10) };
-        }
         // Only an UNROTATED grouped shape can initiate a group-resize -
         // its own handles are drawn un-rotated, so the raw mouse delta
         // already matches the group's (also unrotated/global) bbox
@@ -3578,53 +3566,6 @@
     });
     setDocked(true);
   })();
-  (function setUpRadiusHud() {
-    const win = document.getElementById("radiusHud");
-    const head = document.getElementById("radiusHudHead");
-    const input = document.getElementById("radiusHudInput");
-    document.getElementById("radiusHudClose").addEventListener("click", () => { radiusHudTarget = null; render(); });
-    head.addEventListener("pointerdown", (evt) => {
-      if (evt.target.closest(".floating-preview-close")) return;
-      const startX = evt.clientX, startY = evt.clientY;
-      const rect = win.getBoundingClientRect();
-      const startLeft = rect.left, startTop = rect.top;
-      head.setPointerCapture(evt.pointerId);
-      const onMove = (mv) => {
-        win.style.left = clamp(startLeft + (mv.clientX - startX), -rect.width + 60, window.innerWidth - 60) + "px";
-        win.style.top = clamp(startTop + (mv.clientY - startY), 0, window.innerHeight - 40) + "px";
-      };
-      const onUp = (up) => {
-        head.releasePointerCapture(up.pointerId);
-        head.removeEventListener("pointermove", onMove);
-        head.removeEventListener("pointerup", onUp);
-      };
-      head.addEventListener("pointermove", onMove);
-      head.addEventListener("pointerup", onUp);
-      evt.preventDefault();
-    });
-    // "input" (not "change") for live feedback while typing/dragging
-    // the spinner, same reasoning as propCornerRadius - only touches
-    // the canvas/preview, never a full render(), so it can't steal
-    // focus back out of this very field.
-    input.addEventListener("input", () => {
-      if (!radiusHudTarget) return;
-      const s = getShapeById(radiusHudTarget.shapeId);
-      const a = s && s.anchors && s.anchors[radiusHudTarget.anchorIndex];
-      if (!a) return;
-      // Same ceiling as dragging the handle itself - typing a value
-      // past it wouldn't change anything visible either, so it's
-      // clamped here too rather than silently accepting a number that
-      // does nothing. Unlike renderRadiusHud's own sync (which
-      // deliberately leaves a focused input alone), this DOES correct
-      // the field's own value when it clamps - it's reflecting back
-      // what was just typed into it, not fighting unrelated state.
-      const max = maxCornerRadius(s.anchors, radiusHudTarget.anchorIndex, s.closed);
-      a.r = clamp(+input.value || 0, 0, max);
-      if (+input.value !== a.r) input.value = fmt(a.r);
-      renderShapesLayer(); renderUI(); renderPreview(); renderExport();
-    });
-    input.addEventListener("change", () => { pushHistory(); saveProject(); });
-  })();
   (function setUpFloatingPreview() {
     const win = document.getElementById("floatingPreview");
     const head = document.getElementById("floatingPreviewHead");
@@ -4221,6 +4162,24 @@
               parts.push(cornerRadiusGlyphMarkup(gp, i));
             }
           });
+          // Precise numeric entry now lives in Properties' Corners list
+          // (see renderProperties) - this is just a live readout at the
+          // corner actually being dragged, replacing the old floating HUD.
+          if (draggingRadius) {
+            const i = parseInt(dragHandle.split("-")[1], 10);
+            const a = s.anchors[i];
+            if (a) {
+              const effective = a.r != null ? a.r : (s.cornerRadius || 0);
+              const gp = cornerRadiusGlyphPos(s.anchors, i, s.closed);
+              const label = fmt(effective);
+              const fontSize = clamp(9 / zoom, 0.3, 2.2);
+              const boxW = label.length * fontSize * 0.62 + fontSize;
+              const boxH = fontSize * 1.7;
+              parts.push('<g transform="translate(' + fmt(gp.x) + ' ' + fmt(gp.y) + ')">' +
+                '<rect x="' + fmt(-boxW / 2) + '" y="' + fmt(-boxH / 2) + '" width="' + fmt(boxW) + '" height="' + fmt(boxH) + '" rx="' + fmt(fontSize * 0.3) + '" class="radius-drag-label-bg"/>' +
+                '<text x="0" y="' + fmt(fontSize * 0.35) + '" text-anchor="middle" font-size="' + fmt(fontSize) + '" class="radius-drag-label-text">' + label + '</text></g>');
+            }
+          }
         } else if (s.type === "compound") {
           // The true silhouette outline, plus the same 8 bbox handles
           // rect/ellipse use (via bboxOf/setBbox, both now compound-aware)
@@ -4378,8 +4337,19 @@
     }
     if (s.type === "path") {
       html += '<div class="prop-row"><label>Closed shape</label><input id="propClosed" type="checkbox"' + (s.closed ? " checked" : "") + "></div>" +
-        '<div class="prop-row"><label title="Rounds any sharp corner (a plain click-placed point with no bezier handle of its own) into a smooth fillet. Corners already shaped with the curve tool’s drag-handles are left alone.">Corner radius</label><input id="propCornerRadius" type="number" step="0.1" min="0" value="' + (s.cornerRadius || 0) + '"></div>' +
+        '<div class="prop-row"><label title="Rounds any sharp corner (a plain click-placed point with no bezier handle of its own) into a smooth fillet. Types here apply to every corner, clearing any individually-set corner below.">Corner radius</label><input id="propCornerRadius" type="number" step="0.1" min="0" value="' + (s.cornerRadius || 0) + '"></div>' +
         '<div class="btn-row"><button id="propSmooth" title="Re-runs the Smooth slider setting against this shape’s existing curve">Smooth</button></div>';
+      const eligible = s.anchors.map((a, i) => i).filter((i) => pathCornerEligible(s.anchors, i, s.closed));
+      if (eligible.length) {
+        html += '<div class="prop-row" id="cornersToggleRow" style="cursor:pointer;"><label>Corners (' + eligible.length + ')</label><span>' + (cornersListExpanded ? "▾" : "▸") + "</span></div>";
+        if (cornersListExpanded) {
+          html += eligible.map((i) => {
+            const a = s.anchors[i];
+            const effective = a.r != null ? a.r : (s.cornerRadius || 0);
+            return '<div class="prop-row"><label>Corner ' + (i + 1) + '</label><input class="propCornerR" data-anchor="' + i + '" type="number" step="0.1" min="0" value="' + fmt(effective) + '"></div>';
+          }).join("");
+        }
+      }
     }
     if (s.type !== "line") {
       html += '<div class="prop-row"><label>Rotation°</label><input id="propRotation" type="number" step="1" value="' + Math.round(s.rotation || 0) + '"></div>' +
@@ -4423,10 +4393,26 @@
       // catch up on the next real render() (blur, or any other change).
       cornerRadiusInput.addEventListener("input", () => {
         s.cornerRadius = Math.max(0, +cornerRadiusInput.value || 0);
+        // Typing a shape-wide radius here is an "apply to all corners"
+        // action, not just a new default that individually-overridden
+        // corners keep ignoring - clear every corner's own .r so they
+        // all actually pick up the typed value.
+        s.anchors.forEach((a) => { delete a.r; });
         renderShapesLayer(); renderUI(); renderPreview(); renderExport();
       });
       cornerRadiusInput.addEventListener("change", () => { pushHistory(); saveProject(); });
     }
+    const cornersToggleRow = document.getElementById("cornersToggleRow");
+    if (cornersToggleRow) cornersToggleRow.addEventListener("click", () => { cornersListExpanded = !cornersListExpanded; renderProperties(); });
+    document.querySelectorAll(".propCornerR").forEach((input) => {
+      input.addEventListener("input", () => {
+        const i = +input.dataset.anchor;
+        if (!s.anchors[i]) return;
+        s.anchors[i].r = Math.max(0, +input.value || 0);
+        renderShapesLayer(); renderUI(); renderPreview(); renderExport();
+      });
+      input.addEventListener("change", () => { pushHistory(); saveProject(); });
+    });
     const smoothBtn = document.getElementById("propSmooth");
     if (smoothBtn) smoothBtn.addEventListener("click", () => smoothPathShape(s.id));
     const rotInput = document.getElementById("propRotation");
@@ -4695,27 +4681,6 @@
     document.getElementById("exportText").value = wrapSvgDocument(rawExportMarkup(), currentExportMode()).full;
   }
 
-  // Keeps the floating radius HUD in sync with whatever corner is
-  // currently active - hides it (and clears radiusHudTarget) the
-  // moment that corner stops being a valid target: shape deselected/
-  // deleted, tool switched away from Select, or the shape no longer
-  // even has that many anchors (e.g. after an undo).
-  function renderRadiusHud() {
-    if (radiusHudTarget) {
-      const s = getShapeById(radiusHudTarget.shapeId);
-      if (!s || s.type !== "path" || tool !== "select" || selectedId !== s.id || !s.anchors[radiusHudTarget.anchorIndex]) {
-        radiusHudTarget = null;
-      }
-    }
-    const hud = document.getElementById("radiusHud");
-    if (!radiusHudTarget) { hud.classList.add("hidden"); return; }
-    hud.classList.remove("hidden");
-    const s = getShapeById(radiusHudTarget.shapeId);
-    const a = s.anchors[radiusHudTarget.anchorIndex];
-    const effective = a.r != null ? a.r : (s.cornerRadius || 0);
-    const input = document.getElementById("radiusHudInput");
-    if (document.activeElement !== input) input.value = fmt(effective);
-  }
   // Everything that's actually affected by pan/zoom: the SVG's own
   // viewBox/width/height, the zoom label, the grid (its boundary-marker
   // stroke-width is computed in screen px, see renderGrid), and the
@@ -4763,7 +4728,6 @@
     renderPreview();
     renderStandaloneColors();
     renderExport();
-    renderRadiusHud();
   }
 
   setTool("select");
