@@ -2409,7 +2409,7 @@
   // file) - this reconstructs the gesture by hand from raw Pointer
   // Events instead.
   let activeTouchPointers = new Map(); // pointerId -> {x, y} in client coords
-  let pinchState = null; // {startDist, startZoom}
+  let pinchState = null; // {startDist, startZoom, lastMid} - lastMid tracks frame-to-frame so zoomAt can pan too, see zoomAt's comment
   function pinchDistance() {
     const pts = Array.from(activeTouchPointers.values());
     return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -2460,21 +2460,34 @@
   // zoomAt/centerCanvasOnIcon both work around this by measuring
   // #artboard's actual getBoundingClientRect() before and after changing
   // zoom, rather than assuming any particular scroll-to-content mapping.
-  function zoomAt(newZoom, clientX, clientY) {
+  //
+  // fromX/fromY is the screen point whose CONTENT should end up at
+  // toX/toY once newZoom takes effect - pass the same point for both to
+  // zoom in place (buttons, initial load). A live two-finger pinch that's
+  // also panning needs them distinct: fromX/fromY is where the anchor
+  // WAS last frame, toX/toY is where it just moved to - collapsing those
+  // into a single point (an earlier version of this fix did that) makes
+  // the correction a no-op whenever the pinch distance barely changes,
+  // since "keep the content under my own current position at my own
+  // current position" cancels out - which is exactly a plain two-finger
+  // pan. Carrying the previous frame's anchor is what makes panning (with
+  // or without simultaneous zooming) actually move the view.
+  function zoomAt(newZoom, fromX, fromY, toX, toY) {
+    if (toX === undefined) { toX = fromX; toY = fromY; }
     newZoom = clamp(newZoom, 6, 64);
     const viewport = document.getElementById("canvasViewport");
     const before = svgRoot.getBoundingClientRect();
-    const localX = clientX - before.left, localY = clientY - before.top;
+    const localX = fromX - before.left, localY = fromY - before.top;
     const ratio = newZoom / zoom;
     zoom = newZoom;
     render();
     const after = svgRoot.getBoundingClientRect();
-    // Where that same content point landed post-zoom, if scroll hadn't
-    // moved - nudge scroll by exactly how far off-target that is from
-    // where it's supposed to stay (clientX, clientY).
+    // Where the content that was at (fromX, fromY) landed post-zoom, if
+    // scroll hadn't moved - nudge scroll by exactly how far off-target
+    // that is from where it's supposed to end up (toX, toY).
     const nowX = after.left + localX * ratio, nowY = after.top + localY * ratio;
-    viewport.scrollLeft += nowX - clientX;
-    viewport.scrollTop += nowY - clientY;
+    viewport.scrollLeft += nowX - toX;
+    viewport.scrollTop += nowY - toY;
   }
   // Centers the viewport on the icon's TRUE bounds (not the margin-
   // expanded artboard as a whole) - used once on load, since the
@@ -2574,7 +2587,7 @@
         cancelActiveDrag();
         if (penDraft) { penDraft = null; penPendingDrag = null; }
         freehandPoints = null;
-        pinchState = { startDist: pinchDistance(), startZoom: zoom };
+        pinchState = { startDist: pinchDistance(), startZoom: zoom, lastMid: pinchMidpoint() };
         render();
         evt.preventDefault();
         return;
@@ -2737,7 +2750,8 @@
       if (pinchState && activeTouchPointers.size === 2) {
         const dist = pinchDistance(), mid = pinchMidpoint();
         const newZoom = pinchState.startZoom * (dist / pinchState.startDist);
-        zoomAt(newZoom, mid.x, mid.y);
+        zoomAt(newZoom, pinchState.lastMid.x, pinchState.lastMid.y, mid.x, mid.y);
+        pinchState.lastMid = mid;
         evt.preventDefault();
         return;
       }
