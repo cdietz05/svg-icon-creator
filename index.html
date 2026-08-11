@@ -2487,7 +2487,7 @@
   // file) - this reconstructs the gesture by hand from raw Pointer
   // Events instead.
   let activeTouchPointers = new Map(); // pointerId -> {x, y} in client coords
-  let pinchState = null; // {startDist, startZoom, lastMid} - lastMid tracks frame-to-frame so zoomAt can pan too, see zoomAt's comment
+  let pinchState = null; // {startDist, startZoom, lastMid, rafScheduled} - lastMid tracks frame-to-frame so zoomAt can pan too (see zoomAt's comment); rafScheduled coalesces bursty per-finger events into one recompute per frame (see runPinchFrame)
   function pinchDistance() {
     const pts = Array.from(activeTouchPointers.values());
     return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -2820,15 +2820,38 @@
     }
   }
 
+  // Real two-finger touch delivers each finger's move as its own
+  // separate, interleaved event - not one combined event per frame like
+  // the synthetic touch dispatch used to test this. Running a full
+  // zoomAt()+render() synchronously on every single one of those (the
+  // previous approach) meant a burst of finger events could arrive
+  // faster than the device could actually render each step, so each
+  // recompute worked off already-stale finger positions by the time it
+  // finished - visually a "bouncing between fingers" chase/stutter
+  // rather than smooth tracking, especially on weaker hardware (an
+  // iPad, not the desktop this was profiled on). Coalescing into at
+  // most one recompute per animation frame - always reading the
+  // FRESHEST finger positions at paint time - fixes both: fewer
+  // redundant renders, and each one uses current data instead of
+  // whatever was true several events ago.
+  function runPinchFrame() {
+    if (!pinchState) return;
+    pinchState.rafScheduled = false;
+    if (activeTouchPointers.size !== 2) return;
+    const dist = pinchDistance(), mid = pinchMidpoint();
+    const newZoom = pinchState.startZoom * (dist / pinchState.startDist);
+    zoomAt(newZoom, pinchState.lastMid.x, pinchState.lastMid.y, mid.x, mid.y);
+    pinchState.lastMid = mid;
+  }
   function onPointerMove(evt) {
     if (evt.pointerType === "touch" && activeTouchPointers.has(evt.pointerId)) {
       activeTouchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
       if (pinchState && activeTouchPointers.size === 2) {
-        const dist = pinchDistance(), mid = pinchMidpoint();
-        const newZoom = pinchState.startZoom * (dist / pinchState.startDist);
-        zoomAt(newZoom, pinchState.lastMid.x, pinchState.lastMid.y, mid.x, mid.y);
-        pinchState.lastMid = mid;
         evt.preventDefault();
+        if (!pinchState.rafScheduled) {
+          pinchState.rafScheduled = true;
+          requestAnimationFrame(runPinchFrame);
+        }
         return;
       }
     }
