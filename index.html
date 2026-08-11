@@ -87,6 +87,14 @@
     color: var(--text);
     font-family: var(--sans);
     overscroll-behavior: none;
+    /* The page itself must never scroll - every place content can grow
+       past its box (the side panels, their own sub-panels, the canvas
+       viewport) already has its own overflow-y/overflow:auto to scroll
+       internally instead. Without this, anything that slipped past one
+       of those boundaries scrolled the WHOLE page/body instead of
+       staying contained, which is what "the page moves up and down"
+       actually was. */
+    overflow: hidden;
   }
 
   /* iPad/touch: block the long-press callout + text-selection magnifier
@@ -168,7 +176,17 @@
   .body-grid {
     position: relative;
     display: grid;
-    grid-template-columns: 230px 1fr 300px;
+    /* Drag-resizable via #colResizeLeft/#colResizeRight below - these
+       start at the old hardcoded 230px/300px but become whatever the
+       user last dragged them to (session-only, like every other layout
+       preference here - panel heights, sidebar collapse). Every other
+       rule that used to hardcode 230px/300px (the hide-left/hide-right
+       collapse states, the toggle tabs' own offset) now reads the same
+       two variables instead, so none of them go stale/mismatched the
+       moment a column's actually been resized. */
+    --left-col-width: 230px;
+    --right-col-width: 300px;
+    grid-template-columns: var(--left-col-width) 1fr var(--right-col-width);
     grid-template-areas: "left canvas right";
     min-height: 0;
   }
@@ -180,7 +198,7 @@
      itself (not the sidebar it toggles - aside.left/right both clip
      horizontal overflow via their own overflow-y:auto, which would
      have cut off anything poking past their edge), so its position is
-     driven by the two fixed column widths above (230px/300px) via the
+     driven by the two column-width variables above via the
      .hide-left/.hide-right class swap - same mechanism already used
      for the grid-template-columns collapse itself, just mirrored here
      for the tab's own left/right offset. */
@@ -194,10 +212,24 @@
     transition: left 0.15s ease, right 0.15s ease, background 0.15s ease, color 0.15s ease;
   }
   .sidebar-toggle-tab:hover { background: var(--surface-2); color: var(--text); border-color: var(--accent-2); }
-  .sidebar-toggle-tab-left { left: 222px; }
+  .sidebar-toggle-tab-left { left: calc(var(--left-col-width) - 8px); }
   .body-grid.hide-left .sidebar-toggle-tab-left { left: 4px; }
-  .sidebar-toggle-tab-right { right: 292px; }
+  .sidebar-toggle-tab-right { right: calc(var(--right-col-width) - 8px); }
   .body-grid.hide-right .sidebar-toggle-tab-right { right: 4px; }
+  /* Drag-to-resize a sidebar's own width - absolutely positioned
+     against .body-grid at the seam between it and the canvas, same
+     pattern as the toggle tabs just above (and hidden right along with
+     them, since there's nothing to resize once a sidebar's collapsed).
+     Deliberately NOT shown at the narrow/stacked breakpoint below,
+     where these become full-width rows instead of side columns. */
+  .col-resize-handle {
+    position: absolute; top: 0; bottom: 0; width: 7px; z-index: 16;
+    cursor: ew-resize; touch-action: none;
+  }
+  .col-resize-handle:hover, .col-resize-handle.dragging { background: var(--accent-2); opacity: 0.35; }
+  #colResizeLeft { left: calc(var(--left-col-width) - 3px); }
+  #colResizeRight { right: calc(var(--right-col-width) - 3px); }
+  .body-grid.hide-left #colResizeLeft, .body-grid.hide-right #colResizeRight { display: none; }
 
   aside.left, aside.right {
     background: var(--surface);
@@ -221,10 +253,10 @@
 
   /* Collapsing the icon-list pane to reclaim canvas space. */
   .body-grid.hide-left aside.left { display: none; }
-  .body-grid.hide-left { grid-template-columns: 0 1fr 300px; }
+  .body-grid.hide-left { grid-template-columns: 0 1fr var(--right-col-width); }
   /* Same, mirrored, for the Properties/Export sidebar. */
   .body-grid.hide-right aside.right { display: none; }
-  .body-grid.hide-right { grid-template-columns: 230px 1fr 0; }
+  .body-grid.hide-right { grid-template-columns: var(--left-col-width) 1fr 0; }
   .body-grid.hide-left.hide-right { grid-template-columns: 0 1fr 0; }
 
   /* iPad portrait / narrow window: stack the three columns instead of
@@ -243,6 +275,9 @@
        pin both to the top corners of the whole area instead. */
     .sidebar-toggle-tab-left, .body-grid.hide-left .sidebar-toggle-tab-left { left: 4px; }
     .sidebar-toggle-tab-right, .body-grid.hide-right .sidebar-toggle-tab-right { right: 4px; }
+    /* Columns become full-width stacked rows here - nothing to drag
+       side-to-side anymore. */
+    .col-resize-handle { display: none; }
     aside.left { max-height: 220px; border-right: none; border-bottom: 1px solid var(--border); }
     aside.right { max-height: 42vh; border-left: none; border-top: 1px solid var(--border); }
     .canvas-wrap { min-height: 300px; }
@@ -304,8 +339,14 @@
   .panel-collapse-btn.collapsed { transform: rotate(-90deg); }
   .panel-body.panel-collapsed, .panel-divider.panel-collapsed { display: none; }
 
-  #iconList { padding: 6px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
-  #layerList { padding: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 130px; overflow-y: auto; }
+  /* overflow-y/max-height come from .panel-body now (both have that
+     class in the HTML) - drag-resizable via the .panel-divider right
+     after each, same mechanism the right sidebar's sections already
+     use. #layerList used to hardcode its own max-height here, which
+     (being a more specific id selector) would have silently overridden
+     .panel-body's and capped it regardless of any resize drag. */
+  #iconList { padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+  #layerList { padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 
   .icon-row {
     display: flex;
@@ -332,9 +373,18 @@
   .icon-row-eye:hover { color: var(--accent); }
   .icon-row.layer-hidden .icon-row-eye { color: var(--text-muted); opacity: 0.5; }
   .icon-row.layer-hidden .icon-row-name, .icon-row.layer-hidden .icon-row-count { opacity: 0.5; }
-  .icon-row[draggable="true"] { cursor: grab; }
-  .icon-row[draggable="true"]:active { cursor: grabbing; }
+  /* Layer rows (identified by data-layer, unlike the icon list's
+     data-key rows) are pointer-drag-reorderable - see renderLayerList.
+     touch-action:none stops a touch-drag from being read as scrolling
+     #layerList instead of reordering; the user-select/touch-callout
+     override on the name specifically (beating the broader
+     .icon-row-name rule via specificity) stops a press-drag starting
+     on the text itself from being hijacked into a text selection. */
+  .icon-row[data-layer] { cursor: grab; touch-action: none; }
+  .icon-row[data-layer]:active { cursor: grabbing; }
+  .icon-row[data-layer] .icon-row-name { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .icon-row.dragging { opacity: 0.4; }
+  .icon-row.drop-target { outline: 2px dashed var(--accent-2); outline-offset: -2px; }
 
   .stack { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
   /* Every right-sidebar section can grow long (Properties/Boolean with
@@ -643,15 +693,19 @@
   <div class="body-grid">
     <button id="toggleLeftBtn" class="sidebar-toggle-tab sidebar-toggle-tab-left" title="Hide/show the icon list">◀</button>
     <button id="toggleRightBtn" class="sidebar-toggle-tab sidebar-toggle-tab-right" title="Hide/show the Properties panel">▶</button>
+    <div class="col-resize-handle" id="colResizeLeft" title="Drag to resize"></div>
+    <div class="col-resize-handle" id="colResizeRight" title="Drag to resize"></div>
     <aside class="left">
       <div class="panel-head">Icons</div>
-      <div id="iconList"></div>
+      <div id="iconList" class="panel-body"></div>
+      <div class="panel-divider" data-resize-target="iconList"></div>
       <div class="stack" style="border-top:1px solid var(--border)">
         <button id="addIconBtn">+ Add Icon</button>
       </div>
       <div class="stack" style="border-top:1px solid var(--border)">
         <div class="panel-head" style="padding-left:0" title="Knockouts only cut shapes on their own layer. Draw on a layer above another to sit on top of its knockouts untouched.">Layers</div>
-        <div id="layerList"></div>
+        <div id="layerList" class="panel-body"></div>
+        <div class="panel-divider" data-resize-target="layerList"></div>
         <div class="btn-row">
           <button id="addLayerBtn">+ Add Layer</button>
         </div>
@@ -3501,6 +3555,40 @@
     const hidden = grid.classList.toggle("hide-right");
     document.getElementById("toggleRightBtn").textContent = hidden ? "◀" : "▶";
   });
+  // Drag-to-resize each sidebar's own WIDTH - sets the --left-col-width/
+  // --right-col-width custom properties .body-grid's own column
+  // template (and the toggle tabs' offsets) are already defined in
+  // terms of, so nothing else needs to know a resize even happened.
+  (function setUpColumnResize() {
+    const grid = document.querySelector(".body-grid");
+    function setUpHandle(id, varName, sign, min, max) {
+      const handle = document.getElementById(id);
+      handle.addEventListener("pointerdown", (evt) => {
+        const startX = evt.clientX;
+        const startWidth = parseFloat(getComputedStyle(grid).getPropertyValue(varName)) || 0;
+        handle.classList.add("dragging");
+        handle.setPointerCapture(evt.pointerId);
+        const onMove = (mv) => {
+          // sign flips the drag direction for the right column - moving
+          // the mouse LEFT should grow it (dragging its own left edge
+          // inward), the opposite of the left column's handle.
+          const next = clamp(startWidth + sign * (mv.clientX - startX), min, max);
+          grid.style.setProperty(varName, next + "px");
+        };
+        const onUp = (up) => {
+          handle.releasePointerCapture(up.pointerId);
+          handle.classList.remove("dragging");
+          handle.removeEventListener("pointermove", onMove);
+          handle.removeEventListener("pointerup", onUp);
+        };
+        handle.addEventListener("pointermove", onMove);
+        handle.addEventListener("pointerup", onUp);
+        evt.preventDefault();
+      });
+    }
+    setUpHandle("colResizeLeft", "--left-col-width", 1, 160, 480);
+    setUpHandle("colResizeRight", "--right-col-width", -1, 200, 560);
+  })();
   // Drag-to-resize for every right-sidebar section (Properties/
   // Boolean/Preview/Import/Export) - each divider's data-resize-target
   // is the id of the .panel-body it sits directly below. Sets an
@@ -4167,7 +4255,7 @@
       "</svg>";
     const rows = layers.slice().reverse().map((layer, displayIdx) => {
       const idx = layers.length - 1 - displayIdx;
-      return '<div class="icon-row' + (layer.id === active ? " active" : "") + (layer.hidden ? " layer-hidden" : "") + '" data-layer="' + layer.id + '" draggable="true">' +
+      return '<div class="icon-row' + (layer.id === active ? " active" : "") + (layer.hidden ? " layer-hidden" : "") + '" data-layer="' + layer.id + '">' +
         '<button class="icon-row-eye" data-eye-layer="' + layer.id + '" title="' + (layer.hidden ? "Show layer" : "Hide layer (also skips it on export)") + '">' + eyeSvg(!!layer.hidden) + "</button>" +
         '<span class="icon-row-name">' + layer.name + "</span>" +
         '<span class="icon-row-count">' + (counts[layer.id] || 0) + "</span>" +
@@ -4177,14 +4265,19 @@
         "</div>";
     });
     list.innerHTML = rows.join("");
-    // Drag-and-drop reorder - an alternative to the up/down buttons
-    // above, same underlying array-splice reorder, just picked by drop
-    // target instead of one step at a time. draggedLayerId is scoped to
-    // this render pass (a fresh one is set up every renderLayerList
-    // call) since a drag gesture starts and ends within a single pass,
-    // before the next render() rebuilds the list and reattaches fresh
-    // listeners anyway.
-    let draggedLayerId = null;
+    // Drag-to-reorder via plain pointer events, NOT native HTML5 drag-
+    // and-drop (dragstart/dragover/drop) - that API simply doesn't fire
+    // from touch gestures at all on essentially every mobile browser
+    // including iPadOS Safari, which silently made this a mouse-only
+    // feature despite working fine in any synthetic/desktop test. Every
+    // other draggable thing in this tool (panel dividers, the floating
+    // preview, resize handles) already uses this same pointerdown/move/
+    // up pattern for exactly that reason - matching it here instead of
+    // reusing the browser's native DnD is what actually makes it work
+    // on a touchscreen. A small movement threshold before "dragging"
+    // actually engages keeps a plain tap free to fall through to the
+    // click listener below (selecting the layer) instead of every tap
+    // being misread as a zero-distance drag.
     list.querySelectorAll(".icon-row").forEach((row) => {
       row.addEventListener("click", (e) => {
         if (e.target.closest(".icon-row-del, .icon-row-move, .icon-row-eye")) return;
@@ -4200,22 +4293,46 @@
         layer.name = name.trim();
         pushHistory(); saveProject(); render();
       });
-      row.addEventListener("dragstart", (e) => {
-        draggedLayerId = row.dataset.layer;
-        e.dataTransfer.effectAllowed = "move";
-        row.classList.add("dragging");
-      });
-      row.addEventListener("dragend", () => { row.classList.remove("dragging"); draggedLayerId = null; });
-      row.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; });
-      row.addEventListener("drop", (e) => {
-        e.preventDefault();
-        if (!draggedLayerId || draggedLayerId === row.dataset.layer) return;
-        const fromIdx = layers.findIndex((l) => l.id === draggedLayerId);
-        const toIdx = layers.findIndex((l) => l.id === row.dataset.layer);
-        if (fromIdx < 0 || toIdx < 0) return;
-        const [moved] = layers.splice(fromIdx, 1);
-        layers.splice(toIdx, 0, moved);
-        pushHistory(); saveProject(); render();
+      row.addEventListener("pointerdown", (evt) => {
+        if (evt.target.closest(".icon-row-del, .icon-row-move, .icon-row-eye")) return;
+        const startX = evt.clientX, startY = evt.clientY;
+        const draggedId = row.dataset.layer;
+        let dragging = false;
+        row.setPointerCapture(evt.pointerId);
+        const clearDropTargets = () => list.querySelectorAll(".icon-row.drop-target").forEach((r) => r.classList.remove("drop-target"));
+        const rowUnderPoint = (x, y) => {
+          const el = document.elementFromPoint(x, y);
+          const over = el && el.closest && el.closest(".icon-row");
+          return over && list.contains(over) ? over : null;
+        };
+        const onMove = (mv) => {
+          if (!dragging) {
+            if (Math.abs(mv.clientX - startX) < 6 && Math.abs(mv.clientY - startY) < 6) return;
+            dragging = true;
+            row.classList.add("dragging");
+          }
+          clearDropTargets();
+          const over = rowUnderPoint(mv.clientX, mv.clientY);
+          if (over && over !== row) over.classList.add("drop-target");
+        };
+        const onUp = (up) => {
+          row.releasePointerCapture(up.pointerId);
+          row.removeEventListener("pointermove", onMove);
+          row.removeEventListener("pointerup", onUp);
+          row.classList.remove("dragging");
+          clearDropTargets();
+          if (!dragging) return;
+          const over = rowUnderPoint(up.clientX, up.clientY);
+          if (!over || over === row) return;
+          const fromIdx = layers.findIndex((l) => l.id === draggedId);
+          const toIdx = layers.findIndex((l) => l.id === over.dataset.layer);
+          if (fromIdx < 0 || toIdx < 0) return;
+          const [moved] = layers.splice(fromIdx, 1);
+          layers.splice(toIdx, 0, moved);
+          pushHistory(); saveProject(); render();
+        };
+        row.addEventListener("pointermove", onMove);
+        row.addEventListener("pointerup", onUp);
       });
     });
     list.querySelectorAll(".icon-row-eye").forEach((btn) => {
