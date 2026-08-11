@@ -786,7 +786,7 @@
         <option value="square" selected>Square</option>
         <option value="isometric">Isometric</option>
       </select>
-      <label title="Snap increment, in viewBox units - smaller values allow finer, more precise placement and drags">Grid Scale <input type="number" id="gridStepInput" value="0.5" min="0.05" max="8" step="0.05" style="width:52px"></label>
+      <label title="Snap increment, in viewBox units - smaller values allow finer, more precise placement and drags">Grid Scale <input type="number" id="gridStepInput" value="0.5" min="0.05" max="8" step="0.05" style="width:64px"></label>
     </div>
     <div class="tool-group toolbar-extra">
       <button id="zoomOut" title="Zoom out">−</button>
@@ -794,7 +794,7 @@
       <button id="zoomIn" title="Zoom in">+</button>
     </div>
     <div class="tool-group toolbar-extra">
-      <label>Weight <input type="number" id="defaultStrokeWidth" value="1.6" step="0.1" min="0.2" style="width:48px" title="Stroke width used for newly drawn shapes"></label>
+      <label>Weight <input type="number" id="defaultStrokeWidth" value="1.6" step="0.1" min="0.2" style="width:60px" title="Stroke width used for newly drawn shapes"></label>
     </div>
     <div class="tool-group toolbar-extra">
       <label>Smooth <input type="range" id="freehandSmoothing" min="0" max="100" value="50" step="1" style="width:70px" title="How much the Freehand tool smooths out jitter from a shaky hand - higher removes more of the raw wobble"><span id="freehandSmoothingLabel" style="font-family:var(--mono); font-size:10.5px; color:var(--text-muted); min-width:30px; display:inline-block; text-align:right;">50%</span></label>
@@ -4728,7 +4728,11 @@
     svgRoot.setAttribute("viewBox", fmt(cb.minX) + " " + fmt(cb.minY) + " " + fmt(w + cb.margin * 2) + " " + fmt(h + cb.margin * 2));
     svgRoot.setAttribute("width", (w + cb.margin * 2) * zoom);
     svgRoot.setAttribute("height", (h + cb.margin * 2) * zoom);
-    document.getElementById("zoomLabel").textContent = zoom + "px / unit";
+    // zoom itself isn't rounded (pinch sets it to a raw ratio, e.g.
+    // startZoom * dist/startDist) - only the displayed label is, so the
+    // underlying scroll/render math stays exact instead of snapping to
+    // a slightly-off rounded value every frame.
+    document.getElementById("zoomLabel").textContent = (Math.round(zoom * 100) / 100) + "px / unit";
     document.getElementById("vbW").value = w;
     document.getElementById("vbH").value = h;
     renderGrid();
