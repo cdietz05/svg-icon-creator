@@ -577,10 +577,11 @@
           <label><input type="radio" name="exportMode" value="all"> All icons</label>
           <label><input type="radio" name="exportMode" value="standalone" title="Bakes an explicit color into fill/stroke instead of currentColor, and skips nothing else this tool relies on being modern - viewable standalone in an <img> tag, an old browser, or any SVG viewer, not just inlined in a page that can supply currentColor via CSS."> Standalone</label>
         </div>
-        <div class="prop-row" id="standaloneColorRow" style="display:none">
-          <label>Baked color</label>
-          <input type="color" id="standaloneColor" value="#000000">
+        <div class="prop-row" id="standaloneSizeRow" style="display:none">
+          <label>Export size</label>
+          <input type="number" id="standaloneSize" min="16" max="4096" step="1" value="1024"> px
         </div>
+        <div id="standaloneColorRows" style="display:none"></div>
         <textarea id="exportText" readonly></textarea>
         <p class="muted" style="font-size:10.5px;">None of the buttons below responding (some browsers/devices block all of them)? Tap inside the box above, tap <b>Select All</b>, then <b>Copy</b> from the menu that pops up - that's your device doing the copying, not this page, so no permission can block it.</p>
         <div class="btn-row">
@@ -2999,10 +3000,14 @@
 
   document.querySelectorAll('input[name="exportMode"]').forEach((r) => r.addEventListener("change", () => {
     const isStandalone = document.querySelector('input[name="exportMode"]:checked').value === "standalone";
-    document.getElementById("standaloneColorRow").style.display = isStandalone ? "flex" : "none";
+    document.getElementById("standaloneSizeRow").style.display = isStandalone ? "flex" : "none";
+    document.getElementById("standaloneColorRows").style.display = isStandalone ? "block" : "none";
     renderExport();
   }));
-  document.getElementById("standaloneColor").addEventListener("input", renderExport);
+  document.getElementById("standaloneSize").addEventListener("input", (e) => {
+    standaloneExportPx = clamp(+e.target.value || 1024, 16, 4096);
+    renderExport();
+  });
   // Auto-selects the whole box the moment it's tapped/focused - one less
   // step (no manual drag-to-select) before "Select All > Copy" from the
   // device's own menu, the one export path that works with zero browser
@@ -3041,7 +3046,9 @@
   // though that's numerically "correct" scaling. This icon/All icons
   // stay matched to the viewBox (unchanged) since those are meant to be
   // embedded and CSS-sized by the consuming app, not opened raw.
-  const STANDALONE_EXPORT_PX = 1024;
+  // User-configurable (the "Export size" field, standalone mode only) -
+  // session-only like zoom/grid/snap, not part of project content.
+  let standaloneExportPx = 1024;
   function wrapSvgDocument(text, mode) {
     const xmlHeader = '<?xml version="1.0" encoding="UTF-8"?>\n';
     if (mode === "all") {
@@ -3049,7 +3056,7 @@
     }
     const vb = project.viewBox;
     const dims = mode === "standalone"
-      ? { w: STANDALONE_EXPORT_PX, h: Math.round((STANDALONE_EXPORT_PX * vb.h) / vb.w) }
+      ? { w: standaloneExportPx, h: Math.round((standaloneExportPx * vb.h) / vb.w) }
       : { w: vb.w, h: vb.h };
     const full = xmlHeader + '<svg xmlns="' + SVGNS + '" viewBox="0 0 ' + vb.w + " " + vb.h + '" width="' + dims.w + '" height="' + dims.h + '">\n  ' + text + "\n</svg>";
     const filename = project.activeKey + (mode === "standalone" ? "-standalone" : "") + ".svg";
@@ -3706,22 +3713,26 @@
     return new XMLSerializer().serializeToString(root).replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, "");
   }
   // "Standalone" export mode bakes an explicit color into fill/stroke
-  // in place of currentColor - every literal occurrence of the word
-  // "currentColor" this tool ever writes is exactly that CSS keyword
-  // (never inside a path's own numeric d data, an id, or anything else
-  // that could collide), so a plain text replace is safe and doesn't
-  // need DOM work. currentColor only resolves through CSS inheritance,
-  // which only exists when an SVG is inlined directly into a page - as
-  // an <img src>, a CSS background-image, or in most older/standalone
-  // SVG viewers there's no such context, so currentColor quietly
-  // renders black (or not at all) instead of the intended color. Baking
-  // in a real color makes the file self-contained regardless of how or
-  // where it's opened - the actual ask behind "export like Illustrator
-  // does, viewable in older browsers".
-  function bakeStandaloneColor(text) {
-    const input = document.getElementById("standaloneColor");
-    const color = (input && input.value) || "#000000";
-    return text.replace(/currentColor/g, color);
+  // in place of currentColor, PER LAYER (icon.layers[i].color, default
+  // black) - each layer's shapes get wrapped in their own <g
+  // style="color:X">, the exact same "set color on an ancestor, let
+  // currentColor cascade down" mechanism renderShapesLayer's own
+  // per-shape shading already relies on. That cascade is resolved
+  // entirely within the SVG's own document tree, so - unlike relying on
+  // a HOST PAGE to supply `color` via inline embedding - it works
+  // identically in an <img src>, a CSS background-image, or any
+  // standalone/old SVG viewer opening the file directly, with nothing
+  // external required. Only ever used for standalone export - This
+  // icon/All icons modes keep bare currentColor untouched, since those
+  // are meant to be embedded and CSS-themed by the consuming app.
+  function shapesMarkupStandalone(arr, layers) {
+    const groups = layers && layers.length ? layers : [{ id: "__all__" }];
+    return groups.map((layer) => {
+      const layerShapes = arr.filter((s) => (s.layer || groups[0].id) === layer.id);
+      const normal = layerShapes.filter((s) => !s.knockout);
+      const inner = applyKnockoutMask(normal.map(shapeMarkup).join("\n  "), layerShapes);
+      return '<g style="color:' + (layer.color || "#000000") + '">' + inner + "</g>";
+    }).join("\n  ");
   }
   // Raw, unoptimized markup - kept fast and cheap since this runs on
   // every render() (every drag frame); the DOM-heavy optimizer above
@@ -3736,8 +3747,8 @@
           shapesMarkup(icon.shapes, iconLayers(icon)) + "\n</symbol>";
       }).join("\n\n") + "\n</defs>";
     }
-    const raw = shapesMarkup(shapes(), iconLayers(activeIcon()));
-    return mode === "standalone" ? bakeStandaloneColor(raw) : raw;
+    if (mode === "standalone") return shapesMarkupStandalone(shapes(), iconLayers(activeIcon()));
+    return shapesMarkup(shapes(), iconLayers(activeIcon()));
   }
   // Same optimizer, applied per-<symbol> so mask/clip ids stay unique
   // across icons when exporting "All icons" into one shared document.
@@ -3751,8 +3762,29 @@
           optimizeExportMarkup(shapesMarkup(icon.shapes, iconLayers(icon)), key + "-") + "\n</symbol>";
       }).join("\n\n") + "\n</defs>";
     }
-    const opt = optimizeExportMarkup(shapesMarkup(shapes(), iconLayers(activeIcon())), "");
-    return mode === "standalone" ? bakeStandaloneColor(opt) : opt;
+    if (mode === "standalone") return optimizeExportMarkup(shapesMarkupStandalone(shapes(), iconLayers(activeIcon())), "");
+    return optimizeExportMarkup(shapesMarkup(shapes(), iconLayers(activeIcon())), "");
+  }
+  // One color picker per layer of the active icon, shown only in
+  // Standalone mode - rebuilt from render() (icon/layer list changes
+  // rarely) rather than on every renderExport() tick, so dragging a
+  // color wheel doesn't destroy the very input being dragged out from
+  // under the pointer (same reasoning as propCornerRadius above).
+  function renderStandaloneColors() {
+    const container = document.getElementById("standaloneColorRows");
+    const layers = iconLayers(activeIcon());
+    container.innerHTML = layers.map((layer) =>
+      '<div class="prop-row"><label>' + escapeHtml(layer.name) + ' color</label>' +
+      '<input type="color" class="standaloneLayerColor" data-layer="' + layer.id + '" value="' + (layer.color || "#000000") + '"></div>'
+    ).join("");
+    container.querySelectorAll(".standaloneLayerColor").forEach((input) => {
+      input.addEventListener("input", () => {
+        const layer = layers.find((l) => l.id === input.dataset.layer);
+        if (layer) layer.color = input.value;
+        renderExport();
+      });
+      input.addEventListener("change", () => { pushHistory(); saveProject(); });
+    });
   }
   function renderExport() {
     // Cheap/raw wrap (not optimizeExportMarkup - this runs every
@@ -3780,6 +3812,7 @@
     renderProperties();
     renderBoolPanel();
     renderPreview();
+    renderStandaloneColors();
     renderExport();
   }
 
