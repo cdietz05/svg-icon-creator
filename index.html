@@ -423,6 +423,7 @@
     font-family: var(--display); font-size: 12px; letter-spacing: 0.04em; color: var(--text-muted);
     cursor: move; touch-action: none; -webkit-user-select: none; user-select: none;
   }
+  .floating-preview-head-actions { display: flex; align-items: center; gap: 2px; }
   .floating-preview-close {
     background: none; border: none; color: var(--text-muted); cursor: pointer;
     font-size: 13px; line-height: 1; padding: 4px 7px; border-radius: 6px;
@@ -430,7 +431,9 @@
   .floating-preview-close:hover { color: var(--text); background: var(--surface-2); }
   .floating-preview-body {
     flex: 1; min-height: 0; padding: 14px; display: flex; align-items: center; justify-content: center;
+    overflow: hidden; cursor: grab; touch-action: none;
   }
+  .floating-preview-body.panning { cursor: grabbing; }
   .floating-preview-body svg { width: 100%; height: 100%; color: var(--accent); }
   .floating-preview-resize {
     position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none;
@@ -598,9 +601,12 @@
 <div id="floatingPreview" class="floating-preview hidden">
   <div class="floating-preview-head" id="floatingPreviewHead">
     <span>Live Preview</span>
-    <button id="floatingPreviewClose" class="floating-preview-close" title="Close">✕</button>
+    <span class="floating-preview-head-actions">
+      <button id="popoutPreviewBtn" class="floating-preview-close" title="Open in a real separate window - keeps updating live as you draw, can be moved to another monitor/space. Needs a normal (non-sandboxed) page - works on the GitHub Pages copy.">⧉</button>
+      <button id="floatingPreviewClose" class="floating-preview-close" title="Close">✕</button>
+    </span>
   </div>
-  <div class="floating-preview-body">
+  <div class="floating-preview-body" id="floatingPreviewBody" title="Scroll/pinch to zoom, drag to pan, double-click to reset">
     <svg id="preview-float" class="swatch"></svg>
   </div>
   <div class="floating-preview-resize" id="floatingPreviewResize" title="Drag to resize"><span></span><span></span><span></span></div>
@@ -796,20 +802,88 @@
   // Anchors always carry hin/hout as {dx,dy} offsets from the anchor point
   // (zero offset = straight segment). This lets any segment be dragged into
   // a curve later without needing a separate "has handles" flag.
-  function pathD(anchors, closed) {
+  function pathD(anchors, closed, cornerRadius) {
     if (!anchors.length) return "";
     const isZero = (h) => Math.abs(h.dx) < 0.001 && Math.abs(h.dy) < 0.001;
-    let d = "M " + fmt(anchors[0].x) + " " + fmt(anchors[0].y);
     const n = anchors.length;
+    const r = cornerRadius || 0;
+    if (r <= 0 || n < 3) {
+      let d = "M " + fmt(anchors[0].x) + " " + fmt(anchors[0].y);
+      const segCount = closed ? n : n - 1;
+      for (let i = 0; i < segCount; i++) {
+        const a = anchors[i], b = anchors[(i + 1) % n];
+        if (isZero(a.hout) && isZero(b.hin)) {
+          d += " L " + fmt(b.x) + " " + fmt(b.y);
+        } else {
+          const c1x = a.x + a.hout.dx, c1y = a.y + a.hout.dy;
+          const c2x = b.x + b.hin.dx, c2y = b.y + b.hin.dy;
+          d += " C " + fmt(c1x) + " " + fmt(c1y) + ", " + fmt(c2x) + " " + fmt(c2y) + ", " + fmt(b.x) + " " + fmt(b.y);
+        }
+      }
+      if (closed) d += " Z";
+      return d;
+    }
+    // Corner rounding, ported from the standard "pull back along each
+    // edge, then quadratic-bezier through the original vertex" fillet
+    // trick. Only ever applies to a genuinely sharp corner - one whose
+    // OWN two handles and both its neighbors' facing handles are all
+    // zero - so a vertex someone already made smooth via the curve
+    // tool's own bezier handles is left exactly as they shaped it,
+    // never double-smoothed. An open path's first/last anchor has only
+    // one adjoining edge (nothing to fillet against), so those never
+    // round regardless of cornerRadius.
+    const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+    const isCorner = (i) => {
+      if (!closed && (i === 0 || i === n - 1)) return false;
+      const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
+      return isZero(prev.hout) && isZero(a.hin) && isZero(a.hout) && isZero(next.hin);
+    };
+    // Clamped to half of whichever adjoining edge is shorter, so a
+    // large radius on a small shape can't overshoot past the midpoint
+    // of an edge and self-intersect.
+    const roundedRadius = (i) => {
+      const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
+      return Math.min(r, dist(prev, a) / 2, dist(a, next) / 2);
+    };
+    const entry = (i) => {
+      if (!isCorner(i)) return anchors[i];
+      const prev = anchors[(i - 1 + n) % n], a = anchors[i];
+      const len = dist(prev, a);
+      if (len < 0.0001) return a;
+      const t = roundedRadius(i) / len;
+      return { x: a.x + (prev.x - a.x) * t, y: a.y + (prev.y - a.y) * t };
+    };
+    const exit = (i) => {
+      if (!isCorner(i)) return anchors[i];
+      const a = anchors[i], next = anchors[(i + 1) % n];
+      const len = dist(a, next);
+      if (len < 0.0001) return a;
+      const t = roundedRadius(i) / len;
+      return { x: a.x + (next.x - a.x) * t, y: a.y + (next.y - a.y) * t };
+    };
+    // Starts on the OUTGOING side of vertex 0 (identical to
+    // anchors[0] itself when that vertex isn't rounded) - if vertex 0
+    // is rounded, its incoming fillet is drawn at the very end of the
+    // loop instead, landing back on this exact point rather than
+    // relying on "Z"'s implicit straight-line close, which would cut
+    // straight across the rounded seam otherwise.
+    const start = exit(0);
+    let d = "M " + fmt(start.x) + " " + fmt(start.y);
     const segCount = closed ? n : n - 1;
     for (let i = 0; i < segCount; i++) {
       const a = anchors[i], b = anchors[(i + 1) % n];
+      const bIdx = (i + 1) % n;
       if (isZero(a.hout) && isZero(b.hin)) {
-        d += " L " + fmt(b.x) + " " + fmt(b.y);
+        const segEnd = entry(bIdx);
+        d += " L " + fmt(segEnd.x) + " " + fmt(segEnd.y);
       } else {
         const c1x = a.x + a.hout.dx, c1y = a.y + a.hout.dy;
         const c2x = b.x + b.hin.dx, c2y = b.y + b.hin.dy;
         d += " C " + fmt(c1x) + " " + fmt(c1y) + ", " + fmt(c2x) + " " + fmt(c2y) + ", " + fmt(b.x) + " " + fmt(b.y);
+      }
+      if (isCorner(bIdx)) {
+        const segExit = exit(bIdx);
+        d += " Q " + fmt(b.x) + " " + fmt(b.y) + ", " + fmt(segExit.x) + " " + fmt(segExit.y);
       }
     }
     if (closed) d += " Z";
@@ -1320,7 +1394,7 @@
     let d;
     if (s.type === "rect") d = rectToPathD(s.x, s.y, s.w, s.h, s.rx || 0, s.rx || 0);
     else if (s.type === "ellipse") d = ellipseToPathD(s.cx, s.cy, s.rx, s.ry);
-    else if (s.type === "path") d = pathD(s.anchors, true);
+    else if (s.type === "path") d = pathD(s.anchors, true, s.cornerRadius);
     // A Cut-result compound's clipD (its silhouette clip) is intentionally
     // NOT applied here — feeding this raw d into a further Cut/Merge would
     // need clipD intersected into the boolean op itself, not just applied
@@ -1517,7 +1591,7 @@
         '" stroke="currentColor" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="round"/>';
     }
     if (s.type === "path") {
-      return '<path d="' + pathD(s.anchors, s.closed) + '" ' + styleAttrsStr(s) + transformAttr(s) + "/>";
+      return '<path d="' + pathD(s.anchors, s.closed, s.cornerRadius) + '" ' + styleAttrsStr(s) + transformAttr(s) + "/>";
     }
     if (s.type === "compound") {
       // Merge's union output stays a plain nonzero-fill path - a
@@ -1597,7 +1671,7 @@
     if (s.type === "rect") return '<rect x="' + fmt(s.x) + '" y="' + fmt(s.y) + '" width="' + fmt(s.w) + '" height="' + fmt(s.h) + '" ' + common + transformAttr(s) + "/>";
     if (s.type === "ellipse") return '<ellipse cx="' + fmt(s.cx) + '" cy="' + fmt(s.cy) + '" rx="' + fmt(s.rx) + '" ry="' + fmt(s.ry) + '" ' + common + transformAttr(s) + "/>";
     if (s.type === "line") return '<line x1="' + fmt(s.x1) + '" y1="' + fmt(s.y1) + '" x2="' + fmt(s.x2) + '" y2="' + fmt(s.y2) + '" ' + common + "/>";
-    if (s.type === "path") return '<path d="' + pathD(s.anchors, s.closed) + '" ' + common + transformAttr(s) + "/>";
+    if (s.type === "path") return '<path d="' + pathD(s.anchors, s.closed, s.cornerRadius) + '" ' + common + transformAttr(s) + "/>";
     if (s.type === "compound") {
       const clipAttr = s.clipD ? ' clip-path="url(#clip-' + s.id + ')"' : "";
       return '<path d="' + s.d + '" ' + common + clipAttr + transformAttr(s) + "/>";
@@ -1612,7 +1686,7 @@
     if (s.type === "rect") return '<rect x="' + fmt(s.x) + '" y="' + fmt(s.y) + '" width="' + fmt(s.w) + '" height="' + fmt(s.h) + '" rx="' + fmt(s.rx || 0) + '" class="' + cls + '"' + transformAttr(s) + "/>";
     if (s.type === "ellipse") return '<ellipse cx="' + fmt(s.cx) + '" cy="' + fmt(s.cy) + '" rx="' + fmt(s.rx) + '" ry="' + fmt(s.ry) + '" class="' + cls + '"' + transformAttr(s) + "/>";
     if (s.type === "line") return '<line x1="' + fmt(s.x1) + '" y1="' + fmt(s.y1) + '" x2="' + fmt(s.x2) + '" y2="' + fmt(s.y2) + '" class="' + cls + '"/>';
-    if (s.type === "path") return '<path d="' + pathD(s.anchors, s.closed) + '" class="' + cls + '"' + transformAttr(s) + "/>";
+    if (s.type === "path") return '<path d="' + pathD(s.anchors, s.closed, s.cornerRadius) + '" class="' + cls + '"' + transformAttr(s) + "/>";
     if (s.type === "compound") {
       const clipAttr = s.clipD ? ' clip-path="url(#clip-' + s.id + ')"' : "";
       return '<path d="' + s.d + '" class="' + cls + '"' + clipAttr + transformAttr(s) + "/>";
@@ -1691,6 +1765,31 @@
       } else return d;
     }
     return out.join(" ");
+  }
+  // One-way: turns a rect/ellipse into a 4-point straight-edge path at
+  // its current (unrotated, local) bbox corners, so each corner can
+  // then be dragged independently via the same anchor-N handle drag a
+  // curve-tool shape already has - rect/ellipse's own resize handles
+  // are bbox-locked (always stay axis-aligned), which is exactly what
+  // this sidesteps. rotation/skew/style/stroke/knockout/layer/groupId
+  // are all left untouched - only the fields specific to the old
+  // rect/ellipse geometry are dropped, since a path uses anchors
+  // instead. Not reversible (nothing to "uncheck" back to a rect), so
+  // this is a button + confirm, not a persisted toggle.
+  function convertToFreeTransformPath(s) {
+    const b = bboxOf(s);
+    const zero = () => ({ dx: 0, dy: 0 });
+    const anchors = [
+      { x: b.x, y: b.y, hin: zero(), hout: zero() },
+      { x: b.x + b.w, y: b.y, hin: zero(), hout: zero() },
+      { x: b.x + b.w, y: b.y + b.h, hin: zero(), hout: zero() },
+      { x: b.x, y: b.y + b.h, hin: zero(), hout: zero() },
+    ];
+    delete s.x; delete s.y; delete s.w; delete s.h; delete s.rx; delete s.ry; delete s.cx; delete s.cy;
+    s.type = "path";
+    s.anchors = anchors;
+    s.closed = true;
+    s.cornerRadius = 0;
   }
   const HANDLE_DEFS = [
     { name: "nw", gx: 0, gy: 0 }, { name: "n", gx: 0.5, gy: 0 }, { name: "ne", gx: 1, gy: 0 },
@@ -2661,15 +2760,83 @@
   // inline styles, not persisted - resets on reload, same as every
   // other session-only UI preference in this tool (left-sidebar
   // collapse, panel heights).
+  // Zoom/pan state for the floating preview's own body, independent of
+  // the main canvas's zoom/pan - lets you inspect fine detail in the
+  // small preview without touching the editor's own view. Session-only
+  // (not persisted), reset every time the panel is (re)opened.
+  let floatZoom = 1, floatPanX = 0, floatPanY = 0;
+  function applyFloatTransform() {
+    document.getElementById("preview-float").style.transform =
+      "translate(" + floatPanX + "px, " + floatPanY + "px) scale(" + floatZoom + ")";
+  }
+  // A real separate browser window (not another in-page panel) - kept
+  // live-synced from renderPreview() same as the floating panel, so it
+  // can sit on another monitor/space instead of being stuck in this
+  // tab. Reusing one named window (not a fresh window.open per click)
+  // means clicking Pop Out again just refocuses the existing one.
+  let popoutWin = null;
+  function updatePopoutPreview() {
+    if (!popoutWin || popoutWin.closed) return;
+    const host = popoutWin.document.getElementById("popoutSvgHost");
+    if (!host) return;
+    const vb = project.viewBox;
+    popoutWin.document.title = activeIcon().name + " - Live Preview";
+    host.innerHTML = '<svg viewBox="0 0 ' + vb.w + " " + vb.h + '" style="width:100%; height:100%; color:#6ee7ff;">' +
+      shapesMarkup(shapes(), iconLayers(activeIcon())) + "</svg>";
+  }
   (function setUpFloatingPreview() {
     const win = document.getElementById("floatingPreview");
     const head = document.getElementById("floatingPreviewHead");
+    const body = document.getElementById("floatingPreviewBody");
     const resizeHandle = document.getElementById("floatingPreviewResize");
     document.getElementById("floatPreviewBtn").addEventListener("click", () => {
       win.classList.remove("hidden");
+      floatZoom = 1; floatPanX = 0; floatPanY = 0;
+      applyFloatTransform();
       renderPreview();
     });
     document.getElementById("floatingPreviewClose").addEventListener("click", () => win.classList.add("hidden"));
+    document.getElementById("popoutPreviewBtn").addEventListener("click", () => {
+      if (popoutWin && !popoutWin.closed) { popoutWin.focus(); return; }
+      popoutWin = window.open("", "svgIconCreatorPopoutPreview", "width=480,height=520,resizable=yes");
+      if (!popoutWin) {
+        showAlert("The pop-out window got blocked. Some browsers only allow window.open() from a direct click - try the button again, or check this site's pop-up permission. Won't work at all inside a sandboxed Claude Artifact preview - use the GitHub Pages copy for this.");
+        return;
+      }
+      popoutWin.document.write(
+        "<!doctype html><html><head><title>" + escapeHtml(activeIcon().name) + " - Live Preview</title>" +
+        "<style>html,body{height:100%;margin:0;background:#15181d;display:flex;align-items:center;justify-content:center;overflow:hidden;}" +
+        "#popoutSvgHost{width:88vmin;height:88vmin;}</style></head><body><div id=\"popoutSvgHost\"></div></body></html>"
+      );
+      popoutWin.document.close();
+      updatePopoutPreview();
+    });
+    body.addEventListener("wheel", (evt) => {
+      evt.preventDefault();
+      floatZoom = clamp(floatZoom * (evt.deltaY < 0 ? 1.12 : 1 / 1.12), 0.4, 12);
+      applyFloatTransform();
+    }, { passive: false });
+    body.addEventListener("dblclick", () => { floatZoom = 1; floatPanX = 0; floatPanY = 0; applyFloatTransform(); });
+    body.addEventListener("pointerdown", (evt) => {
+      const startX = evt.clientX, startY = evt.clientY;
+      const startPanX = floatPanX, startPanY = floatPanY;
+      body.classList.add("panning");
+      body.setPointerCapture(evt.pointerId);
+      const onMove = (mv) => {
+        floatPanX = startPanX + (mv.clientX - startX);
+        floatPanY = startPanY + (mv.clientY - startY);
+        applyFloatTransform();
+      };
+      const onUp = (up) => {
+        body.releasePointerCapture(up.pointerId);
+        body.classList.remove("panning");
+        body.removeEventListener("pointermove", onMove);
+        body.removeEventListener("pointerup", onUp);
+      };
+      body.addEventListener("pointermove", onMove);
+      body.addEventListener("pointerup", onUp);
+      evt.preventDefault();
+    });
     head.addEventListener("pointerdown", (evt) => {
       if (evt.target.closest(".floating-preview-close")) return;
       const startX = evt.clientX, startY = evt.clientY;
@@ -3307,8 +3474,12 @@
     if (s.type === "rect") {
       html += '<div class="prop-row"><label>Corner radius</label><input id="propRx" type="number" step="0.1" min="0" value="' + (s.rx || 0) + '"></div>';
     }
+    if (s.type === "rect" || s.type === "ellipse") {
+      html += '<div class="btn-row"><button id="propFreeTransform" title="One-way: converts this shape into a 4-point path so each corner can be dragged independently instead of staying a locked ' + (s.type === "rect" ? "rectangle" : "ellipse") + '.">Free Transform Corners</button></div>';
+    }
     if (s.type === "path") {
       html += '<div class="prop-row"><label>Closed shape</label><input id="propClosed" type="checkbox"' + (s.closed ? " checked" : "") + "></div>" +
+        '<div class="prop-row"><label title="Rounds any sharp corner (a plain click-placed point with no bezier handle of its own) into a smooth fillet. Corners already shaped with the curve tool’s drag-handles are left alone.">Corner radius</label><input id="propCornerRadius" type="number" step="0.1" min="0" value="' + (s.cornerRadius || 0) + '"></div>' +
         '<div class="btn-row"><button id="propSmooth" title="Re-runs the Smooth slider setting against this shape’s existing curve">Smooth</button></div>';
     }
     if (s.type !== "line") {
@@ -3332,8 +3503,31 @@
     if (styleSel) styleSel.addEventListener("change", () => { s.style = styleSel.value; pushHistory(); saveProject(); render(); });
     const rx = document.getElementById("propRx");
     if (rx) rx.addEventListener("change", () => { s.rx = Math.max(0, +rx.value || 0); pushHistory(); saveProject(); render(); });
+    const freeTransformBtn = document.getElementById("propFreeTransform");
+    if (freeTransformBtn) {
+      freeTransformBtn.addEventListener("click", async () => {
+        const ok = await showConfirm("Convert this " + s.type + " to a freeform path so each corner can be dragged independently? This can't be undone back to a " + s.type + " (Ctrl+Z still works as a normal undo step).");
+        if (!ok) return;
+        convertToFreeTransformPath(s);
+        pushHistory(); saveProject(); render();
+      });
+    }
     const closedBox = document.getElementById("propClosed");
     if (closedBox) closedBox.addEventListener("change", () => { s.closed = closedBox.checked; pushHistory(); saveProject(); render(); });
+    const cornerRadiusInput = document.getElementById("propCornerRadius");
+    if (cornerRadiusInput) {
+      // "input" (not "change") so dragging the number spinner previews
+      // live - but a full render() rebuilds Properties' own innerHTML,
+      // which would steal focus out of this very field on every tick.
+      // Only touch the parts that actually need to reflect the new
+      // radius while typing/dragging; Properties/icon-list/bool-panel
+      // catch up on the next real render() (blur, or any other change).
+      cornerRadiusInput.addEventListener("input", () => {
+        s.cornerRadius = Math.max(0, +cornerRadiusInput.value || 0);
+        renderShapesLayer(); renderUI(); renderPreview(); renderExport();
+      });
+      cornerRadiusInput.addEventListener("change", () => { pushHistory(); saveProject(); });
+    }
     const smoothBtn = document.getElementById("propSmooth");
     if (smoothBtn) smoothBtn.addEventListener("click", () => smoothPathShape(s.id));
     const rotInput = document.getElementById("propRotation");
@@ -3387,6 +3581,7 @@
       floatBox.setAttribute("viewBox", vb);
       floatBox.innerHTML = markup;
     }
+    updatePopoutPreview();
   }
 
   // Export-only cleanup - none of this touches the shapes array or how
