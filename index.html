@@ -1880,18 +1880,30 @@
       // built the same way as before) stays only for hitTargetMarkup/
       // shapeOutlineMarkup, which just need the outer silhouette, not
       // the hole itself.
+      // maskId/clipId include a fresh uid() every call, not just s.id -
+      // this same shape gets rendered into several SVG roots at once
+      // (main canvas, the 3 preview swatches, the floating/pop-out
+      // preview, other icons' list thumbnails), and HTML requires every
+      // id to be unique across the WHOLE document, not just within one
+      // <svg>. An id repeated across roots is invalid and which
+      // duplicate a `url(#...)` reference actually resolves to is
+      // browser-defined - this was rendering wrong (or not at all) on
+      // Chromium specifically while Safari happened to tolerate it,
+      // which is exactly the "works on tablet, not PC" split reported.
       if (s.clipD && s.frontD) {
-        const maskId = "cutmask-" + s.id;
+        const maskId = "cutmask-" + s.id + "-" + uid();
+        const clipId = "clip-" + s.id + "-" + uid();
         const mask = '<mask id="' + maskId + '"><path d="' + s.clipD + '" fill="#fff" fill-rule="nonzero"/><path d="' + s.frontD + '" fill="#000" fill-rule="nonzero"/></mask>';
-        const clip = '<clipPath id="clip-' + s.id + '"><path d="' + s.clipD + '"/></clipPath>';
+        const clip = '<clipPath id="' + clipId + '"><path d="' + s.clipD + '"/></clipPath>';
         return mask + clip + '<path d="' + s.clipD + '" mask="url(#' + maskId + ')"' + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
       }
       // Fallback for a Cut result saved before frontD existed (older
       // localStorage/imported projects) - same evenodd+clip-path
       // approach this tool used previously, kept only so old data
       // doesn't break rather than for any new cut.
-      const clip = s.clipD ? '<clipPath id="clip-' + s.id + '"><path d="' + s.clipD + '"/></clipPath>' : "";
-      const clipAttr = s.clipD ? ' clip-path="url(#clip-' + s.id + ')"' : "";
+      const fallbackClipId = "clip-" + s.id + "-" + uid();
+      const clip = s.clipD ? '<clipPath id="' + fallbackClipId + '"><path d="' + s.clipD + '"/></clipPath>' : "";
+      const clipAttr = s.clipD ? ' clip-path="url(#' + fallbackClipId + ')"' : "";
       return clip + '<path d="' + s.d + '" fill-rule="evenodd"' + clipAttr + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
     }
     return "";
@@ -1940,8 +1952,14 @@
     if (s.type === "line") return '<line x1="' + fmt(s.x1) + '" y1="' + fmt(s.y1) + '" x2="' + fmt(s.x2) + '" y2="' + fmt(s.y2) + '" ' + common + "/>";
     if (s.type === "path") return '<path d="' + pathD(s.anchors, s.closed, s.cornerRadius) + '" ' + common + transformAttr(s) + "/>";
     if (s.type === "compound") {
-      const clipAttr = s.clipD ? ' clip-path="url(#clip-' + s.id + ')"' : "";
-      return '<path d="' + s.d + '" ' + common + clipAttr + transformAttr(s) + "/>";
+      // Self-contained (defines its own clipPath rather than assuming
+      // shapeMarkup's copy is already sitting in the DOM somewhere) -
+      // see the long comment on shapeMarkup's own compound branch for
+      // why a shared/stable id here was a real bug.
+      if (!s.clipD) return '<path d="' + s.d + '" ' + common + transformAttr(s) + "/>";
+      const clipId = "clip-ht-" + s.id + "-" + uid();
+      return '<clipPath id="' + clipId + '"><path d="' + s.clipD + '"/></clipPath>' +
+        '<path d="' + s.d + '" ' + common + ' clip-path="url(#' + clipId + ')"' + transformAttr(s) + "/>";
     }
     return "";
   }
@@ -1955,8 +1973,10 @@
     if (s.type === "line") return '<line x1="' + fmt(s.x1) + '" y1="' + fmt(s.y1) + '" x2="' + fmt(s.x2) + '" y2="' + fmt(s.y2) + '" class="' + cls + '"/>';
     if (s.type === "path") return '<path d="' + pathD(s.anchors, s.closed, s.cornerRadius) + '" class="' + cls + '"' + transformAttr(s) + "/>";
     if (s.type === "compound") {
-      const clipAttr = s.clipD ? ' clip-path="url(#clip-' + s.id + ')"' : "";
-      return '<path d="' + s.d + '" class="' + cls + '"' + clipAttr + transformAttr(s) + "/>";
+      if (!s.clipD) return '<path d="' + s.d + '" class="' + cls + '"' + transformAttr(s) + "/>";
+      const clipId = "clip-so-" + s.id + "-" + uid();
+      return '<clipPath id="' + clipId + '"><path d="' + s.clipD + '"/></clipPath>' +
+        '<path d="' + s.d + '" class="' + cls + '" clip-path="url(#' + clipId + ')"' + transformAttr(s) + "/>";
     }
     return "";
   }
@@ -4020,18 +4040,27 @@
     if (clearBtn) clearBtn.addEventListener("click", () => { boolSet = []; render(); });
   }
 
+  // A compound (Cut result) shape's markup embeds its own <mask>/
+  // <clipPath> with an id that's freshly random per call (see
+  // shapeMarkup) specifically so it's never reused - but that only
+  // holds if shapesMarkup() actually gets CALLED separately for every
+  // place it lands. This used to compute the string once and reuse it
+  // (via .innerHTML) across all 3 swatches plus the floating preview -
+  // four SVG roots in the same document sharing the exact same ids,
+  // which is exactly the invalid-duplicate-id situation the per-call
+  // uid() was meant to prevent, just one level up. Calling it fresh
+  // per target is trivially cheap at these shape counts.
   function renderPreview() {
-    const markup = shapesMarkup(shapes(), iconLayers(activeIcon()));
     const vb = "0 0 " + project.viewBox.w + " " + project.viewBox.h;
     ["22", "56", "96"].forEach((size) => {
       const box = document.getElementById("preview-" + size);
       box.setAttribute("viewBox", vb);
-      box.innerHTML = markup;
+      box.innerHTML = shapesMarkup(shapes(), iconLayers(activeIcon()));
     });
     const floatBox = document.getElementById("preview-float");
     if (floatBox) {
       floatBox.setAttribute("viewBox", vb);
-      floatBox.innerHTML = markup;
+      floatBox.innerHTML = shapesMarkup(shapes(), iconLayers(activeIcon()));
     }
     updatePopoutPreview();
   }
