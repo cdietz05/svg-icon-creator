@@ -208,6 +208,25 @@
     padding: 3px 8px;
     border-radius: 6px;
   }
+  /* Same visual role as .panel-head (a section title) for the right
+     sidebar's Boolean/Preview/Import/Export sections specifically - no
+     border of its own, since the .panel-divider immediately above it
+     (see below) is now the only line separating it from the section
+     before it. .panel-head keeps its border-bottom untouched (still
+     used for "Properties" at the top of this same sidebar, and for
+     every header in the left sidebar - nothing above those to divide
+     against). */
+  .panel-subhead {
+    padding: 10px 12px 6px;
+    font-family: var(--display);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
 
   #iconList { padding: 6px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
   #layerList { padding: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 130px; overflow-y: auto; }
@@ -232,30 +251,27 @@
   .icon-row-del:hover { color: var(--danger); }
 
   .stack { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
-  /* Properties/Boolean panels can grow long (a compound shape's full
-     property list, or several boolean-op rows) - letting these two grow
-     to fill the aside's scroll instead of the more-static panels below
-     them (Preview/Import) made those bottom sections hard to reach.
-     overflow-y here is what actually lets a manually-set height (via
-     .panel-resize-handle below) scroll instead of just clipping. */
-  #propsPanel, #boolPanel { overflow-y: auto; min-height: 48px; max-height: 70vh; }
-  /* A drag handle between resizable panel sections — three short lines,
-     the universal "grip" affordance — instead of relying on the native
-     CSS resize corner-nub, which is tiny and easy to miss entirely
-     against this panel's own background. */
-  .panel-resize-handle {
-    flex: none;
-    height: 13px;
-    margin: -4px 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    cursor: ns-resize;
-    touch-action: none;
-  }
-  .panel-resize-handle span { width: 16px; height: 2px; background: var(--border); border-radius: 1px; }
-  .panel-resize-handle:hover span, .panel-resize-handle.dragging span { background: var(--accent-2); }
+  /* Every right-sidebar section can grow long (Properties/Boolean with
+     a compound shape's full property list or several boolean-op rows;
+     Export with a big optimized document in the textarea) - letting
+     any one of them run away instead of respecting a manually-set
+     height made the sections below it hard to reach. overflow-y here
+     is what actually lets that manually-set height (via .panel-divider
+     below) scroll instead of just clipping. */
+  .panel-body { overflow-y: auto; min-height: 48px; max-height: 70vh; }
+  /* The divider line between two right-sidebar sections IS the resize
+     handle - dragging it resizes the section above it (data-resize-
+     target points at that section's own .panel-body id). Replaces an
+     earlier small separate drag-grip: the full-width line already
+     reads as "this is a boundary you can act on" without needing a
+     distinct affordance floating next to it, and it's a much larger,
+     easier-to-grab hit target than a 16px-wide grip. The visible line
+     is a ::before so the draggable box itself can stay taller (a
+     comfortable touch target) without visually thickening the divider
+     itself. */
+  .panel-divider { flex: none; height: 9px; margin: -1px 0 -2px; cursor: ns-resize; touch-action: none; position: relative; }
+  .panel-divider::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--border); }
+  .panel-divider:hover::before, .panel-divider.dragging::before { background: var(--accent-2); height: 2px; top: 3.5px; }
   .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
   .btn-row button { flex: 1; }
 
@@ -269,7 +285,7 @@
     flex-wrap: wrap;
   }
 
-  .tool-group { display: flex; align-items: center; gap: 6px; }
+  .tool-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .tool-group + .tool-group { border-left: 1px solid var(--border); padding-left: 16px; }
   .tool-btn { min-width: 56px; }
   .hint {
@@ -446,6 +462,30 @@
   .floating-preview-resize span:nth-child(2) { width: 10px; bottom: 5px; }
   .floating-preview-resize span:nth-child(3) { width: 5px; bottom: 9px; }
   .floating-preview-resize:hover span, .floating-preview-resize.dragging span { background: var(--accent-2); }
+
+  /* The drawing toolbar, floated off the canvas the same way the
+     preview panel is - draggable by its header, collapsible down to
+     just the 9 drawing tools (.toolbar-extra hides the rest: undo/
+     redo, snap/grid, zoom, weight, smooth, canvas size) for a genuinely
+     smaller footprint when the secondary controls aren't needed. */
+  .floating-toolbar {
+    position: fixed; top: 70px; left: 250px; width: 660px; max-width: 90vw;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    display: flex; flex-direction: column; z-index: 950; overflow: hidden;
+  }
+  .floating-toolbar-head {
+    flex: none; display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--border);
+    font-family: var(--display); font-size: 12px; letter-spacing: 0.04em; color: var(--text-muted);
+    cursor: move; touch-action: none; -webkit-user-select: none; user-select: none;
+  }
+  .floating-toolbar-body {
+    display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap;
+    max-height: 70vh; overflow-y: auto;
+  }
+  .floating-toolbar.collapsed .toolbar-extra { display: none; }
+  .floating-toolbar.collapsed .floating-toolbar-body { gap: 6px; }
 </style>
 
 <div class="app">
@@ -489,48 +529,6 @@
     </aside>
 
     <div class="canvas-wrap">
-      <div class="toolbar">
-        <div class="tool-group">
-          <button id="toggleLeftBtn" title="Hide/show the icon list">◀</button>
-        </div>
-        <div class="tool-group">
-          <button class="tool-btn active" data-tool="select" title="Select / move (V)">Select</button>
-          <button class="tool-btn" data-tool="rect" title="Rectangle — hold Shift for a square (R)">Rect</button>
-          <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)">Ellipse</button>
-          <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)">Line</button>
-          <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter to finish (C)">Curve</button>
-          <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)">Freehand</button>
-          <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)">Cut</button>
-          <button class="tool-btn" data-tool="multi" title="Multi-select — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)">Multi</button>
-          <button class="tool-btn" data-tool="pan" title="Pan — drag (finger or Pencil) to scroll around when zoomed in (P)">Pan</button>
-        </div>
-        <div class="tool-group">
-          <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
-          <button id="redoBtn" title="Redo (Ctrl+Y)">Redo</button>
-        </div>
-        <div class="tool-group">
-          <label><input type="checkbox" id="snapToggle" checked>Snap</label>
-          <label><input type="checkbox" id="gridToggle" checked>Grid</label>
-          <select id="gridMode" title="Grid pattern used for the visible grid and for Snap">
-            <option value="square" selected>Square</option>
-            <option value="isometric">Isometric</option>
-          </select>
-        </div>
-        <div class="tool-group">
-          <button id="zoomOut">−</button>
-          <span id="zoomLabel" style="font-family:var(--mono); font-size:11px; color:var(--text-muted); min-width:56px; text-align:center;"></span>
-          <button id="zoomIn">+</button>
-        </div>
-        <div class="tool-group">
-          <label>Weight <input type="number" id="defaultStrokeWidth" value="1.6" step="0.1" min="0.2" style="width:48px" title="Stroke width used for newly drawn shapes"></label>
-        </div>
-        <div class="tool-group">
-          <label>Smooth <input type="range" id="freehandSmoothing" min="0" max="100" value="50" step="1" style="width:70px" title="How much the Freehand tool smooths out jitter from a shaky hand - higher removes more of the raw wobble"><span id="freehandSmoothingLabel" style="font-family:var(--mono); font-size:10.5px; color:var(--text-muted); min-width:30px; display:inline-block; text-align:right;">50%</span></label>
-        </div>
-        <div class="tool-group">
-          <label>Canvas <input type="number" id="vbW" value="24" min="4" max="512" style="width:48px"> × <input type="number" id="vbH" value="24" min="4" max="512" style="width:48px"></label>
-        </div>
-      </div>
       <div class="hint">
         <b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> finishes, click the start point to close) · <b>F</b> freehand (just draw, it's smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · a selected shape's top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo
       </div>
@@ -545,33 +543,35 @@
 
     <aside class="right">
       <div class="panel-head">Properties</div>
-      <div class="stack" id="propsPanel"></div>
-      <div class="panel-resize-handle" data-resize-target="propsPanel"><span></span><span></span><span></span></div>
+      <div class="stack panel-body" id="propsPanel"></div>
+      <div class="panel-divider" data-resize-target="propsPanel"></div>
 
-      <div class="panel-head">Boolean — cut a hole</div>
-      <div class="stack" id="boolPanel"></div>
-      <div class="panel-resize-handle" data-resize-target="boolPanel"><span></span><span></span><span></span></div>
+      <div class="panel-subhead">Boolean — cut a hole</div>
+      <div class="stack panel-body" id="boolPanel"></div>
+      <div class="panel-divider" data-resize-target="boolPanel"></div>
 
-      <div class="panel-head">
+      <div class="panel-subhead">
         Preview at size
-        <button id="floatPreviewBtn" class="panel-head-btn" title="Open a larger, resizable, freely-movable preview window">⤢ Float</button>
+        <button id="floatPreviewBtn" class="panel-head-btn" title="Open a larger, resizable, freely-movable preview window">⤢ Enlarge Preview</button>
       </div>
-      <div class="stack">
+      <div class="stack panel-body" id="previewPanelBody">
         <div class="preview-row">
           <div class="preview-box"><svg class="swatch" id="preview-22" width="22" height="22"></svg><span>22px</span></div>
           <div class="preview-box"><svg class="swatch" id="preview-56" width="56" height="56"></svg><span>56px</span></div>
           <div class="preview-box"><svg class="swatch" id="preview-96" width="96" height="96"></svg><span>96px</span></div>
         </div>
       </div>
+      <div class="panel-divider" data-resize-target="previewPanelBody"></div>
 
-      <div class="panel-head">Import SVG markup</div>
-      <div class="stack">
+      <div class="panel-subhead">Import SVG markup</div>
+      <div class="stack panel-body" id="importPanelBody">
         <textarea id="importText" placeholder="Paste rect/circle/ellipse/line/polygon/path markup here (e.g. from a previous draft) to load it into the active icon as editable shapes."></textarea>
         <button id="importBtn">Import into this icon</button>
       </div>
+      <div class="panel-divider" data-resize-target="importPanelBody"></div>
 
-      <div class="panel-head">Export</div>
-      <div class="stack">
+      <div class="panel-subhead">Export</div>
+      <div class="stack panel-body" id="exportPanelBody">
         <div class="radio-row">
           <label><input type="radio" name="exportMode" value="active" checked> This icon</label>
           <label><input type="radio" name="exportMode" value="all"> All icons</label>
@@ -599,6 +599,57 @@
   </div>
 </div>
 
+<div class="floating-toolbar" id="floatingToolbar">
+  <div class="floating-toolbar-head" id="floatingToolbarHead">
+    <span>Tools</span>
+    <span class="floating-preview-head-actions">
+      <button id="toolbarCollapseBtn" class="floating-preview-close" title="Collapse to just the drawing tools">−</button>
+    </span>
+  </div>
+  <div class="floating-toolbar-body" id="floatingToolbarBody">
+    <div class="tool-group">
+      <button id="toggleLeftBtn" title="Hide/show the icon list">◀</button>
+    </div>
+    <div class="tool-group">
+      <button class="tool-btn active" data-tool="select" title="Select / move (V)">Select</button>
+      <button class="tool-btn" data-tool="rect" title="Rectangle — hold Shift for a square (R)">Rect</button>
+      <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)">Ellipse</button>
+      <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)">Line</button>
+      <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter to finish (C)">Curve</button>
+      <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)">Freehand</button>
+      <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)">Cut</button>
+      <button class="tool-btn" data-tool="multi" title="Multi-select — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)">Multi</button>
+      <button class="tool-btn" data-tool="pan" title="Pan — drag (finger or Pencil) to scroll around when zoomed in (P)">Pan</button>
+    </div>
+    <div class="tool-group toolbar-extra">
+      <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="redoBtn" title="Redo (Ctrl+Y)">Redo</button>
+    </div>
+    <div class="tool-group toolbar-extra">
+      <label title="Snap new points and drags to the grid"><input type="checkbox" id="snapToggle" checked>Snap</label>
+      <label title="Show/hide the background grid"><input type="checkbox" id="gridToggle" checked>Grid</label>
+      <select id="gridMode" title="Grid pattern used for the visible grid and for Snap">
+        <option value="square" selected>Square</option>
+        <option value="isometric">Isometric</option>
+      </select>
+    </div>
+    <div class="tool-group toolbar-extra">
+      <button id="zoomOut" title="Zoom out">−</button>
+      <span id="zoomLabel" style="font-family:var(--mono); font-size:11px; color:var(--text-muted); min-width:56px; text-align:center;"></span>
+      <button id="zoomIn" title="Zoom in">+</button>
+    </div>
+    <div class="tool-group toolbar-extra">
+      <label>Weight <input type="number" id="defaultStrokeWidth" value="1.6" step="0.1" min="0.2" style="width:48px" title="Stroke width used for newly drawn shapes"></label>
+    </div>
+    <div class="tool-group toolbar-extra">
+      <label>Smooth <input type="range" id="freehandSmoothing" min="0" max="100" value="50" step="1" style="width:70px" title="How much the Freehand tool smooths out jitter from a shaky hand - higher removes more of the raw wobble"><span id="freehandSmoothingLabel" style="font-family:var(--mono); font-size:10.5px; color:var(--text-muted); min-width:30px; display:inline-block; text-align:right;">50%</span></label>
+    </div>
+    <div class="tool-group toolbar-extra">
+      <label title="Icon's own coordinate grid size, in viewBox units - not the exported pixel size">Canvas <input type="number" id="vbW" value="24" min="4" max="512" style="width:48px"> × <input type="number" id="vbH" value="24" min="4" max="512" style="width:48px"></label>
+    </div>
+  </div>
+</div>
+
 <div id="floatingPreview" class="floating-preview hidden">
   <div class="floating-preview-head" id="floatingPreviewHead">
     <span>Live Preview</span>
@@ -619,7 +670,16 @@
   const SVGNS = "http://www.w3.org/2000/svg";
   const STORAGE_KEY = "cinder-icon-editor-project-v1";
 
-  const ICON_SEED = [
+  // No longer used by createDefaultProject (see DEFAULT_ICON_SEED below)
+  // - kept in place, not deleted, since it's real hand-drawn work still
+  // meant for the actual Cinder app once its icon set is finalized, not
+  // dead code. A brand-new user of this now general-purpose tool
+  // shouldn't be handed someone else's in-progress equipment icons as
+  // their own starting point; this project's own author already has
+  // their in-progress version saved in their own browser's localStorage
+  // independent of this constant either way, so nothing here affects
+  // continuing that work.
+  const CINDER_EQUIPMENT_SEED = [
     ["barbell", "Barbell"], ["dumbbell", "Dumbbell"], ["kettlebell", "Kettlebell"],
     ["cable", "Cable"], ["machine", "Machine"], ["bodyweight", "Bodyweight"],
     ["smithMachine", "Smith Machine"], ["battleRopes", "Battle Ropes"], ["sled", "Sled"],
@@ -634,7 +694,7 @@
 
   // Seeded from the most recent hand-drawn draft so editing can continue
   // where the back-and-forth left off, instead of starting from blank canvases.
-  const ICON_SEED_MARKUP = {
+  const CINDER_EQUIPMENT_SEED_MARKUP = {
     barbell: `<line x1="5" y1="12" x2="19" y2="12"/><rect x="3.4" y="10" width="1.6" height="4" rx="0.4"/><rect x="1" y="7" width="2" height="10" rx="0.6"/><rect x="19" y="10" width="1.6" height="4" rx="0.4"/><rect x="21" y="7" width="2" height="10" rx="0.6"/>`,
     dumbbell: `<line x1="9" y1="12" x2="15" y2="12"/><rect x="6.5" y="9" width="1.6" height="6" rx="0.4"/><rect x="4.5" y="7" width="1.6" height="10" rx="0.4"/><rect x="15.9" y="9" width="1.6" height="6" rx="0.4"/><rect x="17.9" y="7" width="1.6" height="10" rx="0.4"/>`,
     kettlebell: `<path d="M8.3 8.6 C8.3 4.3 15.7 4.3 15.7 8.6"/><line x1="8.3" y1="8.6" x2="8.3" y2="10.4"/><line x1="15.7" y1="8.6" x2="15.7" y2="10.4"/><circle cx="12" cy="15.8" r="6.6"/>`,
@@ -664,6 +724,61 @@
     dipStation: `<line x1="3" y1="10" x2="21" y2="10"/><line x1="5" y1="7" x2="19" y2="7"/><line x1="5" y1="10" x2="5" y2="21"/><line x1="19" y1="10" x2="19" y2="21"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/>`,
     plyoBox: `<rect x="4" y="9" width="12" height="12"/><polygon points="4,9 8,4 20,4 16,9"/><polygon points="16,9 20,4 20,16 16,21"/>`,
     landmineAttachment: `<ellipse cx="6" cy="21" rx="3" ry="1.4"/><circle cx="6" cy="19" r="1.6"/><line x1="6" y1="19" x2="20" y2="5"/><polygon points="20.5,8.1 16.9,4.5 15.5,5.9 19.1,9.5"/>`
+  };
+
+  // Actual default for a fresh (never-used-this-tool-before) browser -
+  // a small generic pack for a new user to poke at, not this project's
+  // own in-progress equipment icons. Each one also doubles as a quick
+  // demo of a different tool feature (straight-corner path, a smooth
+  // bezier curve, Knockout, combining multiple shapes, corner-radius
+  // rounding). Built as real shape objects directly (not raw SVG text
+  // parsed through parseMarkupToShapes, the way CINDER_EQUIPMENT_SEED_
+  // MARKUP above is) so fields like knockout/cornerRadius can just be
+  // set outright with total confidence, instead of hand-authoring SVG
+  // text precisely shaped to round-trip back through mask/knockout
+  // reconstruction correctly - that exact reconstruction has been a
+  // repeat source of real bugs this session, not a risk worth taking
+  // for seed data with no upside to going through it.
+  const DEFAULT_ICON_SEED = [
+    ["star", "Star"], ["heart", "Heart"], ["smiley", "Smiley"],
+    ["house", "House"], ["roundedSquare", "Rounded Square"]
+  ];
+  const DEFAULT_ICON_SEED_BUILDERS = {
+    star: () => {
+      const pts = [[12, 3], [14.2, 9], [20.6, 9.2], [15.5, 13.1], [17.3, 19.3], [12, 15.7], [6.7, 19.3], [8.5, 13.1], [3.4, 9.2], [9.8, 9]];
+      return [{
+        id: uid(), type: "path", style: "filled", strokeWidth: 1.6, rotation: 0, skewX: 0, skewY: 0, closed: true,
+        anchors: pts.map(([x, y]) => ({ x, y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } }))
+      }];
+    },
+    heart: () => {
+      const parsed = parsePathD("M 12 20 C 12 20 4 13 4 8.5 C 4 5.5 6.5 3.5 9 3.5 C 10.5 3.5 11.5 4.5 12 5.5 C 12.5 4.5 13.5 3.5 15 3.5 C 17.5 3.5 20 5.5 20 8.5 C 20 13 12 20 12 20 Z");
+      return [{ id: uid(), type: "path", style: "filled", strokeWidth: 1.6, rotation: 0, skewX: 0, skewY: 0, closed: parsed.closed, anchors: parsed.anchors }];
+    },
+    smiley: () => {
+      const face = { id: uid(), type: "ellipse", cx: 12, cy: 12, rx: 10, ry: 10, style: "filled", strokeWidth: 1.6, rotation: 0, skewX: 0, skewY: 0 };
+      const eyeL = { id: uid(), type: "ellipse", cx: 8.5, cy: 10, rx: 1.4, ry: 1.8, style: "filled", strokeWidth: 1.6, rotation: 0, skewX: 0, skewY: 0, knockout: true };
+      const eyeR = { id: uid(), type: "ellipse", cx: 15.5, cy: 10, rx: 1.4, ry: 1.8, style: "filled", strokeWidth: 1.6, rotation: 0, skewX: 0, skewY: 0, knockout: true };
+      const mouth = parsePathD("M 7 14.5 Q 12 20 17 14.5");
+      return [face, eyeL, eyeR, { id: uid(), type: "path", style: "outline", strokeWidth: 1.8, rotation: 0, skewX: 0, skewY: 0, closed: false, anchors: mouth.anchors }];
+    },
+    house: () => {
+      const body = { id: uid(), type: "rect", x: 5, y: 12, w: 14, h: 9, rx: 0, style: "outline", strokeWidth: 1.6, rotation: 0, skewX: 0, skewY: 0 };
+      const roofPts = [[3, 12], [12, 4], [21, 12]];
+      const roof = {
+        id: uid(), type: "path", style: "outline", strokeWidth: 1.6, rotation: 0, skewX: 0, skewY: 0, closed: true,
+        anchors: roofPts.map(([x, y]) => ({ x, y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } }))
+      };
+      const door = { id: uid(), type: "rect", x: 10.3, y: 16, w: 3.4, h: 5, rx: 0.3, style: "outline", strokeWidth: 1.4, rotation: 0, skewX: 0, skewY: 0 };
+      return [body, roof, door];
+    },
+    roundedSquare: () => {
+      const pts = [[5, 5], [19, 5], [19, 19], [5, 19]];
+      return [{
+        id: uid(), type: "path", style: "outline", strokeWidth: 1.8, rotation: 0, skewX: 0, skewY: 0, closed: true, cornerRadius: 3,
+        anchors: pts.map(([x, y]) => ({ x, y, hin: { dx: 0, dy: 0 }, hout: { dx: 0, dy: 0 } }))
+      }];
+    }
   };
 
   function uid() { return "id" + Math.random().toString(36).slice(2, 10); }
@@ -1867,15 +1982,15 @@
   // ---------- project state ----------
   function createDefaultProject() {
     const icons = {};
-    ICON_SEED.forEach(([key, name]) => {
+    DEFAULT_ICON_SEED.forEach(([key, name]) => {
+      const builder = DEFAULT_ICON_SEED_BUILDERS[key];
       let shapes = [];
-      const seedMarkup = ICON_SEED_MARKUP[key];
-      if (seedMarkup) {
-        try { shapes = parseMarkupToShapes(seedMarkup).shapes; } catch (e) { shapes = []; }
+      if (builder) {
+        try { shapes = builder(); } catch (e) { shapes = []; }
       }
       icons[key] = { name, shapes };
     });
-    return { viewBox: { w: 24, h: 24 }, icons, activeKey: ICON_SEED[0][0] };
+    return { viewBox: { w: 24, h: 24 }, icons, activeKey: DEFAULT_ICON_SEED[0][0] };
   }
   function loadProject() {
     try {
@@ -2381,7 +2496,12 @@
         pushHistory(); saveProject();
       }
       draftShape = null; dragMode = null;
-      render(); return;
+      // Drop into Select on whatever was just drawn, same as the curve
+      // tool's own commitPenDraft already does - Properties otherwise
+      // stayed on "pick a tool or select a shape" until you manually
+      // clicked Select, even though selectedId was already set.
+      if (!tooSmall) setTool("select"); else render();
+      return;
     }
     if (dragMode === "move" || dragMode === "handle" || dragMode === "rotate" || dragMode === "bendline") {
       dragMode = null; dragOrigShape = null; dragGroupOrig = []; dragGroupResize = null; alignGuides = null;
@@ -2413,6 +2533,9 @@
           shapes().push(shape);
           selectedId = shape.id;
           pushHistory(); saveProject();
+          freehandPoints = null; dragMode = null;
+          setTool("select");
+          return;
         }
       }
       freehandPoints = null; dragMode = null;
@@ -2728,12 +2851,13 @@
     const hidden = grid.classList.toggle("hide-left");
     document.getElementById("toggleLeftBtn").textContent = hidden ? "▶" : "◀";
   });
-  // Drag-to-resize for the Properties/Boolean panel sections - each
-  // handle's own preceding sibling (.stack) is the panel it resizes.
-  // Sets an explicit px height (overridden from the CSS max-height/
-  // min-height only once dragged) so #propsPanel/#boolPanel's own
-  // overflow-y:auto actually has a fixed box to scroll inside of.
-  document.querySelectorAll(".panel-resize-handle").forEach((handle) => {
+  // Drag-to-resize for every right-sidebar section (Properties/
+  // Boolean/Preview/Import/Export) - each divider's data-resize-target
+  // is the id of the .panel-body it sits directly below. Sets an
+  // explicit px height (overridden from the CSS max-height/min-height
+  // only once dragged) so that target's own overflow-y:auto actually
+  // has a fixed box to scroll inside of.
+  document.querySelectorAll(".panel-divider").forEach((handle) => {
     handle.addEventListener("pointerdown", (evt) => {
       const target = document.getElementById(handle.dataset.resizeTarget);
       if (!target) return;
@@ -2785,6 +2909,40 @@
     host.innerHTML = '<svg viewBox="0 0 ' + vb.w + " " + vb.h + '" style="width:100%; height:100%; color:#6ee7ff;">' +
       shapesMarkup(shapes(), iconLayers(activeIcon())) + "</svg>";
   }
+  // Drawing toolbar - floated off the canvas (not docked in normal
+  // page flow) so it can be dragged out of the way, and collapsible
+  // down to just the 9 drawing tools via .toolbar-extra (everything
+  // else: undo/redo, snap/grid, zoom, weight, smooth, canvas size).
+  // Position/collapsed state are session-only, same as the floating
+  // preview - resets on reload.
+  (function setUpFloatingToolbar() {
+    const win = document.getElementById("floatingToolbar");
+    const head = document.getElementById("floatingToolbarHead");
+    document.getElementById("toolbarCollapseBtn").addEventListener("click", () => {
+      const collapsed = win.classList.toggle("collapsed");
+      document.getElementById("toolbarCollapseBtn").textContent = collapsed ? "+" : "−";
+      document.getElementById("toolbarCollapseBtn").title = collapsed ? "Expand to show every tool option" : "Collapse to just the drawing tools";
+    });
+    head.addEventListener("pointerdown", (evt) => {
+      if (evt.target.closest(".floating-preview-close")) return;
+      const startX = evt.clientX, startY = evt.clientY;
+      const rect = win.getBoundingClientRect();
+      const startLeft = rect.left, startTop = rect.top;
+      head.setPointerCapture(evt.pointerId);
+      const onMove = (mv) => {
+        win.style.left = clamp(startLeft + (mv.clientX - startX), -rect.width + 60, window.innerWidth - 60) + "px";
+        win.style.top = clamp(startTop + (mv.clientY - startY), 0, window.innerHeight - 40) + "px";
+      };
+      const onUp = (up) => {
+        head.releasePointerCapture(up.pointerId);
+        head.removeEventListener("pointermove", onMove);
+        head.removeEventListener("pointerup", onUp);
+      };
+      head.addEventListener("pointermove", onMove);
+      head.addEventListener("pointerup", onUp);
+      evt.preventDefault();
+    });
+  })();
   (function setUpFloatingPreview() {
     const win = document.getElementById("floatingPreview");
     const head = document.getElementById("floatingPreviewHead");
