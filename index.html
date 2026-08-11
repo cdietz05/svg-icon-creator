@@ -325,6 +325,9 @@
   .icon-row-count { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
   .icon-row-del { font-size: 10px; color: var(--text-muted); background: none; border: none; padding: 2px 4px; }
   .icon-row-del:hover { color: var(--danger); }
+  .icon-row-move { font-size: 10px; color: var(--text-muted); background: none; border: none; padding: 2px 3px; line-height: 1; }
+  .icon-row-move:hover:not(:disabled) { color: var(--accent); }
+  .icon-row-move:disabled { opacity: 0.25; cursor: default; }
 
   .stack { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
   /* Every right-sidebar section can grow long (Properties/Boolean with
@@ -4086,17 +4089,26 @@
     const active = activeLayerId;
     const counts = {};
     icon.shapes.forEach((s) => { counts[s.layer] = (counts[s.layer] || 0) + 1; });
-    const rows = layers.slice().reverse().map((layer) =>
-      '<div class="icon-row' + (layer.id === active ? " active" : "") + '" data-layer="' + layer.id + '">' +
-      '<span class="icon-row-name">' + layer.name + "</span>" +
-      '<span class="icon-row-count">' + (counts[layer.id] || 0) + "</span>" +
-      (layers.length > 1 ? '<button class="icon-row-del" data-del-layer="' + layer.id + '" title="Delete layer">✕</button>' : "") +
-      "</div>"
-    );
+    // Stacking order == array order everywhere else in this tool (see
+    // renderShapesLayer) - last entry paints on top. The list itself is
+    // shown reversed (top layer first, Photoshop/Figma convention), so
+    // "move up" on a row means moving its layer toward the END of the
+    // real array, not the start - the arrows below are deliberately
+    // wired to array position, not display position.
+    const rows = layers.slice().reverse().map((layer, displayIdx) => {
+      const idx = layers.length - 1 - displayIdx;
+      return '<div class="icon-row' + (layer.id === active ? " active" : "") + '" data-layer="' + layer.id + '">' +
+        '<span class="icon-row-name">' + layer.name + "</span>" +
+        '<span class="icon-row-count">' + (counts[layer.id] || 0) + "</span>" +
+        '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="up" title="Move layer up (toward the top of the stack)"' + (idx === layers.length - 1 ? " disabled" : "") + ">▲</button>" +
+        '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="down" title="Move layer down (toward the bottom of the stack)"' + (idx === 0 ? " disabled" : "") + ">▼</button>" +
+        (layers.length > 1 ? '<button class="icon-row-del" data-del-layer="' + layer.id + '" title="Delete layer">✕</button>' : "") +
+        "</div>";
+    });
     list.innerHTML = rows.join("");
     list.querySelectorAll(".icon-row").forEach((row) => {
       row.addEventListener("click", (e) => {
-        if (e.target.classList.contains("icon-row-del")) return;
+        if (e.target.classList.contains("icon-row-del") || e.target.classList.contains("icon-row-move")) return;
         activeLayerId = row.dataset.layer;
         renderLayerList();
       });
@@ -4107,6 +4119,17 @@
         const name = await showPrompt("Rename layer:", layer.name);
         if (!name || !name.trim()) return;
         layer.name = name.trim();
+        pushHistory(); saveProject(); render();
+      });
+    });
+    list.querySelectorAll(".icon-row-move").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const layerId = btn.dataset.moveLayer;
+        const idx = layers.findIndex((l) => l.id === layerId);
+        const swapWith = btn.dataset.dir === "up" ? idx + 1 : idx - 1;
+        if (swapWith < 0 || swapWith >= layers.length) return;
+        [layers[idx], layers[swapWith]] = [layers[swapWith], layers[idx]];
         pushHistory(); saveProject(); render();
       });
     });
