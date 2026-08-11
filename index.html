@@ -2409,7 +2409,7 @@
   // file) - this reconstructs the gesture by hand from raw Pointer
   // Events instead.
   let activeTouchPointers = new Map(); // pointerId -> {x, y} in client coords
-  let pinchState = null; // {startDist, startZoom, startMid, startScrollLeft, startScrollTop}
+  let pinchState = null; // {startDist, startZoom}
   function pinchDistance() {
     const pts = Array.from(activeTouchPointers.values());
     return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -2448,6 +2448,49 @@
   let freehandSmoothing = 50; // 0-100 slider - drives both smoothPointTrail's blur passes and rdpSimplify's tolerance, see the freehand release handler
 
   const svgRoot = document.getElementById("artboard");
+
+  // #artboard's rendered footprint is now (icon size + 2x margin) * zoom,
+  // not just icon size * zoom (see canvasClampBounds) - it commonly
+  // overflows #canvasViewport in a dimension where it used to fit. #artboard
+  // also has CSS `margin: auto`, which only centers it while it DOESN'T
+  // overflow - so viewport.scrollLeft/scrollTop do NOT reliably map onto
+  // #artboard's own coordinate space with a fixed offset; that offset
+  // shifts (and can collapse to 0) the moment a dimension crosses from
+  // fitting to overflowing, which now routinely happens mid-gesture.
+  // zoomAt/centerCanvasOnIcon both work around this by measuring
+  // #artboard's actual getBoundingClientRect() before and after changing
+  // zoom, rather than assuming any particular scroll-to-content mapping.
+  function zoomAt(newZoom, clientX, clientY) {
+    newZoom = clamp(newZoom, 6, 64);
+    const viewport = document.getElementById("canvasViewport");
+    const before = svgRoot.getBoundingClientRect();
+    const localX = clientX - before.left, localY = clientY - before.top;
+    const ratio = newZoom / zoom;
+    zoom = newZoom;
+    render();
+    const after = svgRoot.getBoundingClientRect();
+    // Where that same content point landed post-zoom, if scroll hadn't
+    // moved - nudge scroll by exactly how far off-target that is from
+    // where it's supposed to stay (clientX, clientY).
+    const nowX = after.left + localX * ratio, nowY = after.top + localY * ratio;
+    viewport.scrollLeft += nowX - clientX;
+    viewport.scrollTop += nowY - clientY;
+  }
+  // Centers the viewport on the icon's TRUE bounds (not the margin-
+  // expanded artboard as a whole) - used once on load, since the
+  // default scroll position (0,0) now shows the top-left of the margin
+  // workspace rather than the icon whenever the artboard overflows.
+  function centerCanvasOnIcon() {
+    const viewport = document.getElementById("canvasViewport");
+    const vpRect = viewport.getBoundingClientRect();
+    const artRect = svgRoot.getBoundingClientRect();
+    const cb = canvasClampBounds();
+    const { w, h } = project.viewBox;
+    const iconScreenX = artRect.left + (cb.margin + w / 2) * zoom;
+    const iconScreenY = artRect.top + (cb.margin + h / 2) * zoom;
+    viewport.scrollLeft += iconScreenX - (vpRect.left + vpRect.width / 2);
+    viewport.scrollTop += iconScreenY - (vpRect.top + vpRect.height / 2);
+  }
 
   function toLogical(evt) {
     const pt = svgRoot.createSVGPoint();
@@ -2531,11 +2574,7 @@
         cancelActiveDrag();
         if (penDraft) { penDraft = null; penPendingDrag = null; }
         freehandPoints = null;
-        pinchState = {
-          startDist: pinchDistance(), startZoom: zoom, startMid: pinchMidpoint(),
-          startScrollLeft: document.getElementById("canvasViewport").scrollLeft,
-          startScrollTop: document.getElementById("canvasViewport").scrollTop
-        };
+        pinchState = { startDist: pinchDistance(), startZoom: zoom };
         render();
         evt.preventDefault();
         return;
@@ -2697,11 +2736,8 @@
       activeTouchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
       if (pinchState && activeTouchPointers.size === 2) {
         const dist = pinchDistance(), mid = pinchMidpoint();
-        zoom = clamp(pinchState.startZoom * (dist / pinchState.startDist), 6, 64);
-        const viewport = document.getElementById("canvasViewport");
-        viewport.scrollLeft = pinchState.startScrollLeft - (mid.x - pinchState.startMid.x);
-        viewport.scrollTop = pinchState.startScrollTop - (mid.y - pinchState.startMid.y);
-        render();
+        const newZoom = pinchState.startZoom * (dist / pinchState.startDist);
+        zoomAt(newZoom, mid.x, mid.y);
         evt.preventDefault();
         return;
       }
@@ -3593,8 +3629,12 @@
     freehandSmoothing = +e.target.value;
     document.getElementById("freehandSmoothingLabel").textContent = freehandSmoothing + "%";
   });
-  document.getElementById("zoomIn").addEventListener("click", () => { zoom = clamp(zoom + 4, 6, 64); render(); });
-  document.getElementById("zoomOut").addEventListener("click", () => { zoom = clamp(zoom - 4, 6, 64); render(); });
+  function zoomButtonStep(delta) {
+    const r = document.getElementById("canvasViewport").getBoundingClientRect();
+    zoomAt(zoom + delta, r.left + r.width / 2, r.top + r.height / 2);
+  }
+  document.getElementById("zoomIn").addEventListener("click", () => zoomButtonStep(4));
+  document.getElementById("zoomOut").addEventListener("click", () => zoomButtonStep(-4));
   document.getElementById("vbW").addEventListener("change", (e) => { project.viewBox.w = clamp(+e.target.value || 24, 4, 512); pushHistory(); saveProject(); render(); });
   document.getElementById("vbH").addEventListener("change", (e) => { project.viewBox.h = clamp(+e.target.value || 24, 4, 512); pushHistory(); saveProject(); render(); });
 
@@ -4571,6 +4611,7 @@
 
   setTool("select");
   render();
+  centerCanvasOnIcon();
 })();
 </script>
 
