@@ -328,6 +328,13 @@
   .icon-row-move { font-size: 10px; color: var(--text-muted); background: none; border: none; padding: 2px 3px; line-height: 1; }
   .icon-row-move:hover:not(:disabled) { color: var(--accent); }
   .icon-row-move:disabled { opacity: 0.25; cursor: default; }
+  .icon-row-eye { flex: none; color: var(--text-muted); background: none; border: none; padding: 2px 3px; display: flex; align-items: center; }
+  .icon-row-eye:hover { color: var(--accent); }
+  .icon-row.layer-hidden .icon-row-eye { color: var(--text-muted); opacity: 0.5; }
+  .icon-row.layer-hidden .icon-row-name, .icon-row.layer-hidden .icon-row-count { opacity: 0.5; }
+  .icon-row[draggable="true"] { cursor: grab; }
+  .icon-row[draggable="true"]:active { cursor: grabbing; }
+  .icon-row.dragging { opacity: 0.4; }
 
   .stack { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
   /* Every right-sidebar section can grow long (Properties/Boolean with
@@ -2114,6 +2121,14 @@
   function shapesMarkup(arr, layers) {
     const groups = layers && layers.length ? layers : [{ id: "__all__" }];
     return groups.map((layer) => {
+      // A hidden layer renders nothing - in the canvas, the preview, AND
+      // every export mode, since they all funnel through here (or
+      // shapesMarkupWithColor, which mirrors this same check). Shapes
+      // with no explicit .layer of their own still fall back to
+      // groups[0]'s id for grouping purposes even when groups[0] itself
+      // is hidden - they're conceptually part of that layer, so hiding
+      // it correctly hides them too.
+      if (layer.hidden) return "";
       const layerShapes = arr.filter((s) => (s.layer || groups[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
       return applyKnockoutMask(normal.map(shapeMarkup).join("\n  "), layerShapes);
@@ -4143,9 +4158,17 @@
     // "move up" on a row means moving its layer toward the END of the
     // real array, not the start - the arrows below are deliberately
     // wired to array position, not display position.
+    // Small hand-drawn eye/eye-off glyph (no emoji) - same open-path
+    // style as the rest of this tool's own icon set.
+    const eyeSvg = (hidden) => '<svg viewBox="0 0 16 10" width="14" height="10" class="icon-row-eye-svg">' +
+      '<path d="M1 5 C1 5 4 1 8 1 C12 1 15 5 15 5 C15 5 12 9 8 9 C4 9 1 5 1 5 Z" fill="none" stroke="currentColor" stroke-width="1.3"/>' +
+      (hidden ? '' : '<circle cx="8" cy="5" r="1.8" fill="currentColor"/>') +
+      (hidden ? '<line x1="1" y1="1" x2="15" y2="9" stroke="currentColor" stroke-width="1.3"/>' : '') +
+      "</svg>";
     const rows = layers.slice().reverse().map((layer, displayIdx) => {
       const idx = layers.length - 1 - displayIdx;
-      return '<div class="icon-row' + (layer.id === active ? " active" : "") + '" data-layer="' + layer.id + '">' +
+      return '<div class="icon-row' + (layer.id === active ? " active" : "") + (layer.hidden ? " layer-hidden" : "") + '" data-layer="' + layer.id + '" draggable="true">' +
+        '<button class="icon-row-eye" data-eye-layer="' + layer.id + '" title="' + (layer.hidden ? "Show layer" : "Hide layer (also skips it on export)") + '">' + eyeSvg(!!layer.hidden) + "</button>" +
         '<span class="icon-row-name">' + layer.name + "</span>" +
         '<span class="icon-row-count">' + (counts[layer.id] || 0) + "</span>" +
         '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="up" title="Move layer up (toward the top of the stack)"' + (idx === layers.length - 1 ? " disabled" : "") + ">▲</button>" +
@@ -4154,9 +4177,17 @@
         "</div>";
     });
     list.innerHTML = rows.join("");
+    // Drag-and-drop reorder - an alternative to the up/down buttons
+    // above, same underlying array-splice reorder, just picked by drop
+    // target instead of one step at a time. draggedLayerId is scoped to
+    // this render pass (a fresh one is set up every renderLayerList
+    // call) since a drag gesture starts and ends within a single pass,
+    // before the next render() rebuilds the list and reattaches fresh
+    // listeners anyway.
+    let draggedLayerId = null;
     list.querySelectorAll(".icon-row").forEach((row) => {
       row.addEventListener("click", (e) => {
-        if (e.target.classList.contains("icon-row-del") || e.target.classList.contains("icon-row-move")) return;
+        if (e.target.closest(".icon-row-del, .icon-row-move, .icon-row-eye")) return;
         activeLayerId = row.dataset.layer;
         renderLayerList();
       });
@@ -4167,6 +4198,32 @@
         const name = await showPrompt("Rename layer:", layer.name);
         if (!name || !name.trim()) return;
         layer.name = name.trim();
+        pushHistory(); saveProject(); render();
+      });
+      row.addEventListener("dragstart", (e) => {
+        draggedLayerId = row.dataset.layer;
+        e.dataTransfer.effectAllowed = "move";
+        row.classList.add("dragging");
+      });
+      row.addEventListener("dragend", () => { row.classList.remove("dragging"); draggedLayerId = null; });
+      row.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; });
+      row.addEventListener("drop", (e) => {
+        e.preventDefault();
+        if (!draggedLayerId || draggedLayerId === row.dataset.layer) return;
+        const fromIdx = layers.findIndex((l) => l.id === draggedLayerId);
+        const toIdx = layers.findIndex((l) => l.id === row.dataset.layer);
+        if (fromIdx < 0 || toIdx < 0) return;
+        const [moved] = layers.splice(fromIdx, 1);
+        layers.splice(toIdx, 0, moved);
+        pushHistory(); saveProject(); render();
+      });
+    });
+    list.querySelectorAll(".icon-row-eye").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const layer = layers.find((l) => l.id === btn.dataset.eyeLayer);
+        if (!layer) return;
+        layer.hidden = !layer.hidden;
         pushHistory(); saveProject(); render();
       });
     });
@@ -4228,6 +4285,7 @@
     const layers = iconLayers(activeIcon());
     let shadeIdx = 0;
     const markup = layers.map((layer) => {
+      if (layer.hidden) return "";
       const layerShapes = arr.filter((s) => (s.layer || layers[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
       const inner = normal.map((s) => {
@@ -4245,8 +4303,17 @@
     // applyKnockoutMask/renderShapesLayer) - this dashed marker is the
     // only thing that makes them visible/findable at all, so it's
     // always on regardless of tool, not just while selected.
-    shapes().forEach((s) => { if (s.knockout) parts.push(shapeOutlineMarkup(s, "knockout-outline")); });
-    if (tool === "select" || tool === "multi" || tool === "cut") shapes().forEach((s) => parts.push(hitTargetMarkup(s)));
+    // A shape on a hidden layer is invisible on canvas (see
+    // renderShapesLayer) - it shouldn't still be clickable/draggable
+    // there either, even though it's still reachable via the layer
+    // list or Properties (e.g. to move it to a visible layer).
+    const uiLayers = iconLayers(activeIcon());
+    const isShapeVisible = (s) => {
+      const layer = uiLayers.find((l) => l.id === (s.layer || uiLayers[0].id));
+      return !layer || !layer.hidden;
+    };
+    shapes().forEach((s) => { if (s.knockout && isShapeVisible(s)) parts.push(shapeOutlineMarkup(s, "knockout-outline")); });
+    if (tool === "select" || tool === "multi" || tool === "cut") shapes().filter(isShapeVisible).forEach((s) => parts.push(hitTargetMarkup(s)));
     if (draftShape) parts.push(shapeMarkup(draftShape).replace(/\/>$/, ' class="draft-preview"/>'));
     if (freehandPoints && freehandPoints.length > 1) {
       const d = "M " + freehandPoints.map((fp) => fmt(fp.x) + " " + fmt(fp.y)).join(" L ");
@@ -4816,6 +4883,7 @@
   function shapesMarkupWithColor(arr, layers, fallbackColor) {
     const groups = layers && layers.length ? layers : [{ id: "__all__" }];
     return groups.map((layer) => {
+      if (layer.hidden) return ""; // same as shapesMarkup - a hidden layer exports/previews nothing
       const layerShapes = arr.filter((s) => (s.layer || groups[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
       const inner = normal.map((s) => {
