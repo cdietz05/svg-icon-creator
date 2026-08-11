@@ -401,7 +401,13 @@
   }
 
   #artboard {
-    background: var(--canvas-bg);
+    /* This is the MARGIN workspace tone now, not the icon's own canvas
+       - the true 0,0,w,h area is painted over it by a real <rect> (see
+       renderGrid) in --canvas-bg, so the two read as visually distinct
+       and it's always obvious where the actual icon bounds are versus
+       the safety room around them (see the render()/canvasMargin()
+       comment for why that margin exists at all). */
+    background: var(--surface-3);
     box-shadow: 0 0 0 1px var(--border), 0 8px 24px rgba(0,0,0,0.25);
     touch-action: none;
     cursor: crosshair;
@@ -1148,13 +1154,11 @@
       const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
       return isZero(prev.hout) && isZero(a.hin) && isZero(a.hout) && isZero(next.hin);
     };
-    // Clamped to half of whichever adjoining edge is shorter, so a
-    // large radius on a small shape can't overshoot past the midpoint
-    // of an edge and self-intersect.
-    const roundedRadius = (i) => {
-      const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
-      return Math.min(cornerR(i), dist(prev, a) / 2, dist(a, next) / 2);
-    };
+    // Clamped to maxCornerRadius (half of whichever adjoining edge is
+    // shorter), so a large radius on a small shape can't overshoot past
+    // the midpoint of an edge and self-intersect - shared with the drag
+    // handle/HUD input so they can never disagree about the ceiling.
+    const roundedRadius = (i) => Math.min(cornerR(i), maxCornerRadius(anchors, i, closed));
     const entry = (i) => {
       if (!isCorner(i)) return anchors[i];
       const prev = anchors[(i - 1 + n) % n], a = anchors[i];
@@ -1229,6 +1233,18 @@
     let blen = Math.hypot(bx, by);
     if (blen < 0.001) { bx = -u1y; by = u1x; blen = 1; }
     return { x: bx / blen, y: by / blen, edgeMin: Math.min(d1, d2) };
+  }
+  // The largest radius that actually changes anything - pathD's own
+  // fillet math already silently clamps to this (half of whichever
+  // adjoining edge is shorter, so the fillet can't overshoot past an
+  // edge's own midpoint), but nothing stopped a handle drag or the HUD's
+  // manual entry from setting .r far beyond it, which just meant extra
+  // drag distance/typing with zero visible effect - a real "why isn't
+  // this doing anything past a certain point" trap. Shared here so the
+  // drag/HUD input and pathD's rendering can never disagree about where
+  // that ceiling actually is.
+  function maxCornerRadius(anchors, i, closed) {
+    return cornerBisector(anchors, i, closed).edgeMin / 2;
   }
   // Where the handle itself is drawn - proportional to whatever radius
   // is actually in effect right now (this anchor's own override, or
@@ -2402,6 +2418,27 @@
     const pts = Array.from(activeTouchPointers.values());
     return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
   }
+  // The artboard is rendered a bit bigger than the icon's own true
+  // bounds (see render()'s viewBox setup) - a bezier hin/hout handle or
+  // a corner-radius handle used to be draggable arbitrarily far in any
+  // direction, and once dragged out past the SVG element's own
+  // rendered edge it was clipped by #artboard's overflow:hidden -
+  // genuinely invisible AND unclickable, no way to grab it again short
+  // of Undo. This margin gives real extra room to work in (curve
+  // handles especially often want to reach past the icon's own edge)
+  // while canvasClampBounds/clampToCanvasMargin (below) guarantee a
+  // handle dragged toward that room can never go far enough to become
+  // unreachable again.
+  const CANVAS_MARGIN_RATIO = 0.5;
+  function canvasClampBounds() {
+    const { w, h } = project.viewBox;
+    const margin = Math.max(w, h) * CANVAS_MARGIN_RATIO;
+    return { minX: -margin, minY: -margin, maxX: w + margin, maxY: h + margin, margin };
+  }
+  function clampToCanvasMargin(p) {
+    const b = canvasClampBounds();
+    return { x: clamp(p.x, b.minX, b.maxX), y: clamp(p.y, b.minY, b.maxY) };
+  }
   let zoom = 18;
   let snapEnabled = true;
   let gridStep = 0.5;
@@ -2910,7 +2947,14 @@
       const parts = handle.split("-");
       const kind = parts[0], i = parseInt(parts[1], 10);
       const origA = orig.anchors[i];
-      s.anchors[i][kind] = { dx: origA[kind].dx + dx, dy: origA[kind].dy + dy };
+      // Clamped in ABSOLUTE space (not just the raw delta) so a handle
+      // can never be dragged out past the margin workspace and become
+      // invisible/unclickable behind #artboard's overflow:hidden - see
+      // canvasClampBounds. Converted back to a dx/dy offset afterward
+      // since that's how a handle is actually stored, relative to its
+      // own anchor.
+      const clamped = clampToCanvasMargin({ x: origA.x + origA[kind].dx + dx, y: origA.y + origA[kind].dy + dy });
+      s.anchors[i][kind] = { dx: clamped.x - origA.x, dy: clamped.y - origA.y };
       return;
     }
     if (handle.indexOf("radius-") === 0) {
@@ -2921,10 +2965,23 @@
       // (dragging shouldn't make the handle's own direction wander as
       // the radius changes), starting from whatever radius was already
       // in effect (this anchor's own override, or the shape default).
+      // Clamped to maxCornerRadius - past that point the fillet itself
+      // stops growing (pathD clamps it identically), so letting the
+      // HANDLE keep going further was just extra drag distance with
+      // zero visible effect. Also clamped so the handle's own position
+      // can't leave the margin workspace, same as hin-/hout- above,
+      // though a radius this large would already be unusual.
       const i = parseInt(handle.split("-")[1], 10);
       const bis = cornerBisector(orig.anchors, i, orig.closed);
       const startR = orig.anchors[i].r != null ? orig.anchors[i].r : (orig.cornerRadius || 0);
-      s.anchors[i].r = Math.max(0, startR + (dx * bis.x + dy * bis.y));
+      let r = clamp(startR + (dx * bis.x + dy * bis.y), 0, maxCornerRadius(orig.anchors, i, orig.closed));
+      const a = orig.anchors[i];
+      const pos = { x: a.x + bis.x * r, y: a.y + bis.y * r };
+      const clampedPos = clampToCanvasMargin(pos);
+      if (clampedPos.x !== pos.x || clampedPos.y !== pos.y) {
+        r = Math.max(0, (clampedPos.x - a.x) * bis.x + (clampedPos.y - a.y) * bis.y);
+      }
+      s.anchors[i].r = r;
       return;
     }
     if (handle === "p1") { const p = snapPt({ x: orig.x1 + dx, y: orig.y1 + dy }); s.x1 = p.x; s.y1 = p.y; return; }
@@ -3416,7 +3473,16 @@
       const s = getShapeById(radiusHudTarget.shapeId);
       const a = s && s.anchors && s.anchors[radiusHudTarget.anchorIndex];
       if (!a) return;
-      a.r = Math.max(0, +input.value || 0);
+      // Same ceiling as dragging the handle itself - typing a value
+      // past it wouldn't change anything visible either, so it's
+      // clamped here too rather than silently accepting a number that
+      // does nothing. Unlike renderRadiusHud's own sync (which
+      // deliberately leaves a focused input alone), this DOES correct
+      // the field's own value when it clamps - it's reflecting back
+      // what was just typed into it, not fighting unrelated state.
+      const max = maxCornerRadius(s.anchors, radiusHudTarget.anchorIndex, s.closed);
+      a.r = clamp(+input.value || 0, 0, max);
+      if (+input.value !== a.r) input.value = fmt(a.r);
       renderShapesLayer(); renderUI(); renderPreview(); renderExport();
     });
     input.addEventListener("change", () => { pushHistory(); saveProject(); });
@@ -4057,9 +4123,13 @@
 
   function renderGrid() {
     const g = document.getElementById("gridLayer");
-    if (!showGrid) { g.innerHTML = ""; return; }
     const { w, h } = project.viewBox;
-    let parts = [];
+    // Marks the icon's own true bounds distinctly from the margin
+    // workspace around it (see canvasClampBounds) - always drawn
+    // regardless of the Grid toggle, since it's a boundary marker, not
+    // part of the grid itself.
+    let parts = ['<rect x="0" y="0" width="' + fmt(w) + '" height="' + fmt(h) + '" fill="var(--canvas-bg)" stroke="var(--border)" stroke-width="' + fmt(1 / zoom) + '"/>'];
+    if (!showGrid) { g.innerHTML = parts.join(""); return; }
     if (gridMode === "isometric") {
       // All three axes of the lattice (90/30/150 degrees) share the same
       // perpendicular spacing in a proper triangular grid - see isoSnapPt's
@@ -4474,9 +4544,15 @@
     boolSet = boolSet.filter((id) => !!getShapeById(id));
     multiSelect = multiSelect.filter((id) => !!getShapeById(id));
     const { w, h } = project.viewBox;
-    svgRoot.setAttribute("viewBox", "0 0 " + w + " " + h);
-    svgRoot.setAttribute("width", w * zoom);
-    svgRoot.setAttribute("height", h * zoom);
+    // The rendered SVG is bigger than the icon's own true w x h - see
+    // canvasClampBounds/clampToCanvasMargin above for why. Export/
+    // wrapSvgDocument is entirely separate from this (uses
+    // project.viewBox directly) so none of this margin ever leaks into
+    // an exported file - it's a live-editor-only workspace concept.
+    const cb = canvasClampBounds();
+    svgRoot.setAttribute("viewBox", fmt(cb.minX) + " " + fmt(cb.minY) + " " + fmt(w + cb.margin * 2) + " " + fmt(h + cb.margin * 2));
+    svgRoot.setAttribute("width", (w + cb.margin * 2) * zoom);
+    svgRoot.setAttribute("height", (h + cb.margin * 2) * zoom);
     document.getElementById("zoomLabel").textContent = zoom + "px / unit";
     document.getElementById("vbW").value = w;
     document.getElementById("vbH").value = h;
