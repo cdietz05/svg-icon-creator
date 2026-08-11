@@ -1253,6 +1253,33 @@
   function maxCornerRadius(anchors, i, closed) {
     return cornerBisector(anchors, i, closed).edgeMin / 2;
   }
+  // Signed area (shoelace) - sign gives the polygon's overall winding.
+  // Only meaningful for a closed path; open paths get an arbitrary but
+  // consistent default (no real "inside" to speak of).
+  function polygonWindingSign(anchors, closed) {
+    if (!closed || anchors.length < 3) return 1;
+    let sum = 0;
+    const n = anchors.length;
+    for (let k = 0; k < n; k++) {
+      const p1 = anchors[k], p2 = anchors[(k + 1) % n];
+      sum += p1.x * p2.y - p2.x * p1.y;
+    }
+    return sum >= 0 ? 1 : -1;
+  }
+  // A corner is convex (shape bulges OUT there, the ordinary rounded-
+  // corner case) when its own local turn direction matches the overall
+  // polygon's winding; a reflex/concave corner (an inward notch) turns
+  // the opposite way. cornerBisector's sum-of-unit-vectors formula only
+  // actually points into the shape's interior for a convex corner - at
+  // a reflex corner it points the other way - so anything placed via
+  // that bisector needs its sign flipped there to end up on the correct
+  // (empty, non-filled) side either way.
+  function isConvexCorner(anchors, i, closed) {
+    const n = anchors.length;
+    const prev = anchors[(i - 1 + n) % n], a = anchors[i], next = anchors[(i + 1) % n];
+    const cross = (a.x - prev.x) * (next.y - a.y) - (a.y - prev.y) * (next.x - a.x);
+    return (cross >= 0) === (polygonWindingSign(anchors, closed) >= 0);
+  }
   // Where the little Corner Radius glyph itself sits - a FIXED small
   // offset from the corner along its bisector, deliberately NOT
   // proportional to the radius currently in effect (unlike an earlier
@@ -1264,27 +1291,32 @@
   // little control glyph next to the corner never does.
   function cornerRadiusGlyphPos(anchors, i, closed) {
     const a = anchors[i];
-    const bis = cornerBisector(anchors, i, closed); // points INTO the shape
-    const desired = clamp(11 / zoom, 0.25, 3);
-    const dist = Math.min(desired, Math.max(0.12, bis.edgeMin * 0.4));
-    // Negated bisector - sits OUTSIDE the shape, not inside it, so it's
-    // never sitting on top of the shape's own body/fill or crowded
-    // against interior handles.
-    return { x: a.x - bis.x * dist, y: a.y - bis.y * dist, bis, dist };
+    const bis = cornerBisector(anchors, i, closed);
+    const desired = clamp(14 / zoom, 0.3, 3.6);
+    const dist = Math.min(desired, Math.max(0.14, bis.edgeMin * 0.4));
+    // Convex: negate the bisector so the glyph sits OUTSIDE the shape's
+    // own fill instead of inside it. Reflex/concave: the bisector is
+    // already pointing away from the interior (see isConvexCorner), so
+    // negating it again would put the glyph right back inside the
+    // notch - use it as-is instead. Either way this lands in the empty,
+    // non-filled space next to the corner, never on top of the shape.
+    const sign = isConvexCorner(anchors, i, closed) ? -1 : 1;
+    return { x: a.x + bis.x * dist * sign, y: a.y + bis.y * dist * sign, bis, dist, sign };
   }
   // A short curved stroke (not a filled dot, see the .handle-radius CSS)
   // bowed back toward the corner so it actually reads as a rounding cue.
   function cornerRadiusGlyphMarkup(g, i) {
     const bis = g.bis;
     const px = -bis.y, py = bis.x;
-    const half = clamp(3 / zoom, 0.08, g.dist * 0.75);
+    const half = clamp(4 / zoom, 0.12, g.dist * 0.8);
     const p1x = g.x + px * half, p1y = g.y + py * half;
     const p2x = g.x - px * half, p2y = g.y - py * half;
     const bow = half * 0.9;
-    // g sits outside the shape now (bis still points from corner INTO
-    // the shape) - bowing toward the corner means moving along +bis.
-    const ctrlx = g.x + bis.x * bow, ctrly = g.y + bis.y * bow;
-    return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR()) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
+    // Bow back toward the corner - opposite of whichever way g itself
+    // was pushed out (see cornerRadiusGlyphPos's sign), so the arc
+    // always curves toward the vertex it belongs to either way.
+    const ctrlx = g.x - bis.x * bow * g.sign, ctrly = g.y - bis.y * bow * g.sign;
+    return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR() * 1.3) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
       '<path d="M ' + fmt(p1x) + ' ' + fmt(p1y) + ' Q ' + fmt(ctrlx) + ' ' + fmt(ctrly) + ' ' + fmt(p2x) + ' ' + fmt(p2y) + '" class="handle-radius"/>';
   }
 
