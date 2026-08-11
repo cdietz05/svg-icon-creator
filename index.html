@@ -286,6 +286,18 @@
   .canvas-viewport {
     flex: 1;
     overflow: auto;
+    /* #artboard (and everything in it) already blocks native touch
+       scroll/zoom so drawing gestures aren't stolen by the page - but
+       that only covers the SVG element itself. Whenever the artboard
+       is smaller than the viewport (typical at low zoom, or any time a
+       stroke starts a few pixels outside its exact bounds - easy with
+       an Apple Pencil's precision) touches landing in this surrounding
+       margin fell through to the browser's default touch-action:auto
+       and scrolled the viewport instead of nothing happening. The
+       "Pan" tool still works with this off - it drags scrollLeft/
+       scrollTop itself in JS (see onPointerMove's dragMode==="pan"
+       branch), it never relied on native touch panning here anyway. */
+    touch-action: none;
     display: flex;
     background:
       linear-gradient(45deg, var(--surface-3) 25%, transparent 25%) -8px -8px / 16px 16px,
