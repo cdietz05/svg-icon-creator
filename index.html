@@ -2463,6 +2463,27 @@
     if (!layers.some((l) => l.id === activeLayerId)) activeLayerId = layers[layers.length - 1].id;
     return activeLayerId;
   }
+  // The Select tool's own click target - prioritizes whatever's on the
+  // active layer over strict visual topmost, so clicking into a stack
+  // of overlapping shapes on different layers lands on the one you're
+  // actually about to work in rather than whatever happens to paint on
+  // top. document.elementsFromPoint returns the WHOLE stack under the
+  // cursor (topmost first), unlike evt.target which only ever gives the
+  // single topmost hit - falls straight back to that same topmost pick
+  // when nothing in the stack is on the active layer, so this changes
+  // nothing for the common case of a stack that's all one layer.
+  function pickSelectShapeId(evt) {
+    const stack = document.elementsFromPoint(evt.clientX, evt.clientY);
+    const hits = stack
+      .filter((el) => el.hasAttribute && el.hasAttribute("data-id"))
+      .map((el) => getShapeById(el.getAttribute("data-id")))
+      .filter(Boolean);
+    if (!hits.length) return null;
+    const layers = iconLayers(activeIcon());
+    const active = currentLayerId();
+    const preferred = hits.find((sh) => (sh.layer || layers[0].id) === active);
+    return (preferred || hits[0]).id;
+  }
   let selectedId = null;
   // Whether the Properties panel's per-corner radius list is expanded -
   // module-level since renderProperties rebuilds the panel's innerHTML
@@ -2709,6 +2730,11 @@
     const shapeId = target.getAttribute && target.getAttribute("data-id");
 
     if (tool === "select") {
+      // Only for an actual shape click below (handles use handleName,
+      // resolved above via plain evt.target - a handle's own hit-target
+      // circle IS the topmost thing under the cursor when you're
+      // grabbing it, so there's no ambiguous stack to prioritize there).
+      const selectShapeId = handleName ? shapeId : pickSelectShapeId(evt);
       if (handleName && selectedId) {
         const targetShape = getShapeById(selectedId);
         if (handleName === "rotate") {
@@ -2757,15 +2783,15 @@
         }
         evt.preventDefault(); return;
       }
-      if (shapeId && evt.shiftKey) {
-        const idx = boolSet.indexOf(shapeId);
+      if (selectShapeId && evt.shiftKey) {
+        const idx = boolSet.indexOf(selectShapeId);
         if (idx >= 0) boolSet.splice(idx, 1);
-        else { boolSet.push(shapeId); if (boolSet.length > 2) boolSet.shift(); }
+        else { boolSet.push(selectShapeId); if (boolSet.length > 2) boolSet.shift(); }
         render();
         evt.preventDefault(); return;
       }
-      if (shapeId) {
-        selectedId = shapeId;
+      if (selectShapeId) {
+        selectedId = selectShapeId;
         dragMode = "move"; dragStart = p;
         const selShape = getShapeById(selectedId);
         dragOrigShape = JSON.parse(JSON.stringify(selShape));
