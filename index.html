@@ -819,6 +819,7 @@
     </div>
     <div class="tool-group">
       <button class="tool-btn active" data-tool="select" title="Select / move (V)">Select</button>
+      <button class="tool-btn" data-tool="multi" title="Select Multi — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)">Select Multi</button>
       <button class="tool-btn" data-tool="rect" title="Rectangle — hold Shift for a square (R)">Rect</button>
       <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)">Ellipse</button>
       <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)">Line</button>
@@ -826,7 +827,6 @@
       <button class="tool-btn" data-tool="polygon" title="Freeform — click to place each corner, Enter to finish, click the start point to close (no curves - drag has no effect) (S)">Freeform</button>
       <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)">Freehand</button>
       <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)">Cut</button>
-      <button class="tool-btn" data-tool="multi" title="Multi-select — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)">Multi</button>
       <button class="tool-btn" data-tool="pan" title="Pan — drag (finger or Pencil) to scroll around when zoomed in (P)">Pan</button>
     </div>
     <div class="tool-group toolbar-extra">
@@ -2531,16 +2531,17 @@
     if (!layers.some((l) => l.id === activeLayerId)) activeLayerId = layers[layers.length - 1].id;
     return activeLayerId;
   }
-  // The Select tool's own click target - prioritizes whatever's on the
-  // active layer over strict visual topmost, so clicking into a stack
-  // of overlapping shapes on different layers lands on the one you're
-  // actually about to work in rather than whatever happens to paint on
-  // top. document.elementsFromPoint returns the WHOLE stack under the
-  // cursor (topmost first), unlike evt.target which only ever gives the
-  // single topmost hit - falls straight back to that same topmost pick
-  // when nothing in the stack is on the active layer, so this changes
-  // nothing for the common case of a stack that's all one layer.
-  function pickSelectShapeId(evt) {
+  // Shared by Select and Select Multi's own click target - prioritizes
+  // whatever's on the active layer over strict visual topmost, so
+  // clicking into a stack of overlapping shapes on different layers
+  // lands on the one you're actually about to work in rather than
+  // whatever happens to paint on top. document.elementsFromPoint
+  // returns the WHOLE stack under the cursor (topmost first), unlike
+  // evt.target which only ever gives the single topmost hit - falls
+  // straight back to that same topmost pick when nothing in the stack
+  // is on the active layer, so this changes nothing for the common
+  // case of a stack that's all one layer.
+  function pickShapeIdAtPoint(evt) {
     const stack = document.elementsFromPoint(evt.clientX, evt.clientY);
     const hits = stack
       .filter((el) => el.hasAttribute && el.hasAttribute("data-id"))
@@ -2802,7 +2803,7 @@
       // resolved above via plain evt.target - a handle's own hit-target
       // circle IS the topmost thing under the cursor when you're
       // grabbing it, so there's no ambiguous stack to prioritize there).
-      const selectShapeId = handleName ? shapeId : pickSelectShapeId(evt);
+      const selectShapeId = handleName ? shapeId : pickShapeIdAtPoint(evt);
       if (handleName && selectedId) {
         const targetShape = getShapeById(selectedId);
         if (handleName === "rotate") {
@@ -2923,9 +2924,12 @@
     }
 
     if (tool === "multi") {
-      if (shapeId) {
-        const idx = multiSelect.indexOf(shapeId);
-        if (idx >= 0) multiSelect.splice(idx, 1); else multiSelect.push(shapeId);
+      // Same active-layer-first click priority as Select - see
+      // pickShapeIdAtPoint.
+      const multiShapeId = pickShapeIdAtPoint(evt);
+      if (multiShapeId) {
+        const idx = multiSelect.indexOf(multiShapeId);
+        if (idx >= 0) multiSelect.splice(idx, 1); else multiSelect.push(multiShapeId);
         render();
         evt.preventDefault(); return;
       }
