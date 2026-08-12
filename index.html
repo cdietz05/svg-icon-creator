@@ -4082,12 +4082,26 @@
           showAlert("This browser couldn't produce a ." + ext + " file - try the other raster format, or Download .svg and convert it elsewhere.");
           return;
         }
-        const filename = project.activeKey + "-standalone." + ext;
+        // A browser with no WebP encoder doesn't error or return null
+        // here - it silently hands back a real PNG blob instead, still
+        // claiming whatever extension we ask for was honored. Naming
+        // the file by the REQUESTED mimeType regardless (the original
+        // bug) produced a real mismatch between the filename and the
+        // file's actual content - some browsers then appended the type
+        // they actually detected on save, landing as "name.webp.png".
+        // Naming it from blob.type instead means the filename always
+        // matches what's actually inside it.
+        const actualExt = blob.type === "image/webp" ? "webp" : blob.type === "image/png" ? "png" : ext;
+        const filename = project.activeKey + "-standalone." + actualExt;
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = filename;
         a.click();
-        showToast("Triggered a save of " + filename + " - check Downloads.");
+        if (mimeType === "image/webp" && blob.type !== "image/webp") {
+          showAlert("This browser can't actually encode WebP - saved as a PNG instead (" + filename + ").");
+        } else {
+          showToast("Triggered a save of " + filename + " - check Downloads.");
+        }
       }, mimeType);
     };
     img.onerror = () => {
