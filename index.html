@@ -337,6 +337,9 @@
      once this session with reused button classes. */
   .icon-row-copy { font-size: 11px; color: var(--text-muted); background: none; border: none; padding: 2px 3px; line-height: 1; }
   .icon-row-copy:hover { color: var(--accent); }
+  /* Own class too, same reasoning as .icon-row-copy just above. */
+  .icon-row-rename { font-size: 11px; color: var(--text-muted); background: none; border: none; padding: 2px 3px; line-height: 1; }
+  .icon-row-rename:hover { color: var(--accent); }
   .icon-row-move:disabled { opacity: 0.25; cursor: default; }
   .icon-row-eye { flex: none; color: var(--text-muted); background: none; border: none; padding: 2px 3px; display: flex; align-items: center; }
   .icon-row-eye:hover { color: var(--accent); }
@@ -4815,6 +4818,7 @@
         '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="up" title="Move layer up (toward the top of the stack)"' + (idx === layers.length - 1 ? " disabled" : "") + ">▲</button>" +
         '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="down" title="Move layer down (toward the bottom of the stack)"' + (idx === 0 ? " disabled" : "") + ">▼</button>" +
         '<button class="icon-row-copy" data-copy-layer="' + layer.id + '" title="Copy layer — duplicates it and every shape on it into a new layer">⧉</button>' +
+        '<button class="icon-row-rename" data-rename-layer="' + layer.id + '" title="Rename layer (double-clicking the name does the same thing)">✎</button>' +
         (layers.length > 1 ? '<button class="icon-row-del" data-del-layer="' + layer.id + '" title="Delete layer — also permanently deletes its shapes">✕</button>' : "") +
         "</div>" +
         '<div class="layer-opacity-row"><input type="range" class="layer-opacity-slider" data-layer="' + layer.id + '" min="0" max="1" step="0.05" value="' + (layer.opacity != null ? layer.opacity : 1) + '" title="Layer opacity"></div>';
@@ -4833,23 +4837,29 @@
     // actually engages keeps a plain tap free to fall through to the
     // click listener below (selecting the layer) instead of every tap
     // being misread as a zero-distance drag.
+    // Shared by the double-click-the-name gesture and the explicit
+    // rename button below - a hidden dblclick-only affordance isn't
+    // discoverable, so the button exists for anyone who wouldn't
+    // stumble onto double-clicking on their own; both end up here.
+    async function renameLayer(layer) {
+      const name = await showPrompt("Rename layer:", layer.name);
+      if (!name || !name.trim()) return;
+      layer.name = name.trim();
+      pushHistory(); saveProject(); render();
+    }
     list.querySelectorAll(".icon-row").forEach((row) => {
       row.addEventListener("click", (e) => {
-        if (e.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-eye")) return;
+        if (e.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-rename, .icon-row-eye")) return;
         activeLayerId = row.dataset.layer;
         renderLayerList();
       });
       const nameEl = row.querySelector(".icon-row-name");
-      nameEl.addEventListener("dblclick", async (e) => {
+      nameEl.addEventListener("dblclick", (e) => {
         e.stopPropagation();
-        const layer = layers.find((l) => l.id === row.dataset.layer);
-        const name = await showPrompt("Rename layer:", layer.name);
-        if (!name || !name.trim()) return;
-        layer.name = name.trim();
-        pushHistory(); saveProject(); render();
+        renameLayer(layers.find((l) => l.id === row.dataset.layer));
       });
       row.addEventListener("pointerdown", (evt) => {
-        if (evt.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-eye")) return;
+        if (evt.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-rename, .icon-row-eye")) return;
         const startX = evt.clientX, startY = evt.clientY;
         const draggedId = row.dataset.layer;
         let dragging = false;
@@ -4927,6 +4937,12 @@
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         duplicateLayer(btn.dataset.copyLayer);
+      });
+    });
+    list.querySelectorAll(".icon-row-rename").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        renameLayer(layers.find((l) => l.id === btn.dataset.renameLayer));
       });
     });
     list.querySelectorAll(".icon-row-del").forEach((btn) => {
