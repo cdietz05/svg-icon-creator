@@ -2264,6 +2264,7 @@
   function bboxOf(s) {
     if (s.type === "rect") return { x: s.x, y: s.y, w: s.w, h: s.h };
     if (s.type === "compound") return bboxFromD(compoundVisualD(s));
+    if (s.type === "path") return anchorsBbox(s.anchors);
     return { x: s.cx - s.rx, y: s.cy - s.ry, w: s.rx * 2, h: s.ry * 2 };
   }
   function setBbox(s, b) {
@@ -2273,6 +2274,23 @@
       s.d = scalePathD(s.d, old, b);
       if (s.clipD) s.clipD = scalePathD(s.clipD, old, b);
       if (s.frontD) s.frontD = scalePathD(s.frontD, old, b);
+    }
+    else if (s.type === "path") {
+      // Same remap scaleShapeToBbox's own path branch already does for
+      // group-resize (anchor xy through the bbox affine transform,
+      // hin/hout scaled as vectors, corner-radius override preserved) -
+      // sourced from the LIVE shape's own current bbox, same pattern
+      // compound's branch above uses, so this needs no extra "orig"
+      // parameter threaded through applyHandleDrag's existing call site.
+      const old = anchorsBbox(s.anchors);
+      const sx = old.w > 0.0001 ? b.w / old.w : 1, sy = old.h > 0.0001 ? b.h / old.h : 1;
+      const remap = (x, y) => ({ x: b.x + (x - old.x) * sx, y: b.y + (y - old.y) * sy });
+      s.anchors = s.anchors.map((a) => {
+        const p = remap(a.x, a.y);
+        const next = { x: p.x, y: p.y, hin: { dx: a.hin.dx * sx, dy: a.hin.dy * sy }, hout: { dx: a.hout.dx * sx, dy: a.hout.dy * sy } };
+        if (a.r != null) next.r = a.r;
+        return next;
+      });
     }
     else { s.rx = b.w / 2; s.ry = b.h / 2; s.cx = b.x + s.rx; s.cy = b.y + s.ry; }
   }
@@ -4756,6 +4774,11 @@
       // translucent overlay was covering up the exact edge you're
       // trying to watch move, defeating the point of a live preview.
       const draggingRadius = dragMode === "handle" && dragHandle && dragHandle.indexOf("radius-") === 0;
+      // Dragging one of a path's own whole-shape scale handles (the new
+      // outer set, below) - same "hide the other handle set while this
+      // one's active" idea draggingRadius already uses, just for the
+      // opposite pairing.
+      const draggingScale = dragMode === "handle" && dragHandle && RESIZE_HANDLE_NAMES.has(dragHandle);
       if (!draggingRadius) parts.push(shapeOutlineMarkup(s, "selected-highlight"));
       if (s.type === "line") {
         parts.push(handleMarkup(s.x1, s.y1, "p1"));
@@ -4797,23 +4820,51 @@
           // there (dragHandle/dragOrigShape already captured it at
           // pointerdown), so hiding it too keeps that same corner
           // fully visible instead of half-covered by its own handle.
-          s.anchors.forEach((a, i) => {
-            if (draggingRadius) return;
-            parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hin.dx) + '" y2="' + fmt(a.y + a.hin.dy) + '" class="handle-guide"/>');
-            parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hout.dx) + '" y2="' + fmt(a.y + a.hout.dy) + '" class="handle-guide"/>');
-            parts.push(handleMarkup(a.x + a.hin.dx, a.y + a.hin.dy, "hin-" + i, "handle-diamond"));
-            parts.push(handleMarkup(a.x + a.hout.dx, a.y + a.hout.dy, "hout-" + i, "handle-diamond"));
-            parts.push(handleMarkup(a.x, a.y, "anchor-" + i, "handle-anchor"));
-            // Corner Radius handle - only on a straight-both-sides
-            // corner (nothing to round on a bezier-shaped vertex).
-            // Dragging it sets THIS anchor's own .r, independent of
-            // every other corner - see applyHandleDrag's "radius-"
-            // branch and pathD's per-corner cornerR() resolution.
-            if (pathCornerEligible(s.anchors, i, s.closed)) {
-              const gp = cornerRadiusGlyphPos(s.anchors, i, s.closed);
-              parts.push(cornerRadiusGlyphMarkup(gp, i));
-            }
-          });
+          if (!draggingScale) {
+            s.anchors.forEach((a, i) => {
+              if (draggingRadius) return;
+              parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hin.dx) + '" y2="' + fmt(a.y + a.hin.dy) + '" class="handle-guide"/>');
+              parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(a.x + a.hout.dx) + '" y2="' + fmt(a.y + a.hout.dy) + '" class="handle-guide"/>');
+              parts.push(handleMarkup(a.x + a.hin.dx, a.y + a.hin.dy, "hin-" + i, "handle-diamond"));
+              parts.push(handleMarkup(a.x + a.hout.dx, a.y + a.hout.dy, "hout-" + i, "handle-diamond"));
+              parts.push(handleMarkup(a.x, a.y, "anchor-" + i, "handle-anchor"));
+              // Corner Radius handle - only on a straight-both-sides
+              // corner (nothing to round on a bezier-shaped vertex).
+              // Dragging it sets THIS anchor's own .r, independent of
+              // every other corner - see applyHandleDrag's "radius-"
+              // branch and pathD's per-corner cornerR() resolution.
+              if (pathCornerEligible(s.anchors, i, s.closed)) {
+                const gp = cornerRadiusGlyphPos(s.anchors, i, s.closed);
+                parts.push(cornerRadiusGlyphMarkup(gp, i));
+              }
+            });
+          }
+          // Whole-shape scale handles - a SECOND set, separate from the
+          // per-anchor ones above (which reshape individual points).
+          // Same 8-handle bbox resize rect/ellipse/compound already have
+          // (via the now-path-aware bboxOf/setBbox), so it gets free
+          // stretch by default and Shift/a held 2nd finger locks
+          // proportions for free, same as every other shape type. Only
+          // the 4 CORNER handles get nudged outward along the diagonal
+          // (small, zoom-constant distance) - a rect converted via Free
+          // Transform Corners has anchors sitting EXACTLY at its own
+          // bbox corners, so an un-nudged corner handle would land right
+          // on top of that anchor's own handle. Edge handles keep their
+          // exact midpoint - no equivalent collision there.
+          if (!draggingRadius) {
+            const b = bboxOf(s);
+            parts.push('<rect x="' + fmt(b.x) + '" y="' + fmt(b.y) + '" width="' + fmt(b.w) + '" height="' + fmt(b.h) + '" class="selection-outline"/>');
+            const bCenter = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+            const cornerPush = clamp(10 / zoom, 0.3, 2.5);
+            HANDLE_DEFS.forEach((hd) => {
+              let hx = b.x + b.w * hd.gx, hy = b.y + b.h * hd.gy;
+              if (CORNER_HANDLE_NAMES.has(hd.name)) {
+                const dx = hx - bCenter.x, dy = hy - bCenter.y, len = Math.hypot(dx, dy) || 1;
+                hx += (dx / len) * cornerPush; hy += (dy / len) * cornerPush;
+              }
+              parts.push(handleMarkup(hx, hy, hd.name));
+            });
+          }
           // Precise numeric entry now lives in Properties' Corners list
           // (see renderProperties) - this is just a live readout at the
           // corner actually being dragged, replacing the old floating HUD.
