@@ -2919,9 +2919,17 @@
 
     if (tool === "trace") {
       if (!traceImage) return;
-      const traceHandle = target.getAttribute && target.getAttribute("data-trace-handle");
+      // Corner circles are drawn via the shared handleMarkup() helper
+      // (like every other handle in this tool), which stamps a plain
+      // "data-handle" attribute (here "trace-nw" etc) - read that,
+      // rather than a separate "data-trace-handle" attribute that only
+      // the move-rect below ever actually had, so clicking a corner
+      // circle silently did nothing. Kept as the full "trace-nw" form
+      // (not stripped) since onPointerMove's resize branch already
+      // matches against these exact prefixed strings.
+      const traceHandle = handleName && handleName.indexOf("trace-") === 0 ? handleName : null;
       if (traceHandle) {
-        traceDrag = { mode: traceHandle === "move" ? "move" : "resize", handle: traceHandle, start: p, orig: { ...traceImage } };
+        traceDrag = { mode: traceHandle === "trace-move" ? "move" : "resize", handle: traceHandle, start: p, orig: { ...traceImage } };
         evt.preventDefault();
       }
       return;
@@ -4920,7 +4928,10 @@
       });
     }
     if (tool === "trace" && traceImage) {
-      parts.push('<rect x="' + fmt(traceImage.x) + '" y="' + fmt(traceImage.y) + '" width="' + fmt(traceImage.w) + '" height="' + fmt(traceImage.h) + '" class="trace-bounds" data-trace-handle="move"/>');
+      // "data-handle", not "data-trace-handle" - matches the corner
+      // circles below (handleMarkup always stamps "data-handle"), and
+      // matches how onPointerDown's trace branch now reads it.
+      parts.push('<rect x="' + fmt(traceImage.x) + '" y="' + fmt(traceImage.y) + '" width="' + fmt(traceImage.w) + '" height="' + fmt(traceImage.h) + '" class="trace-bounds" data-handle="trace-move"/>');
       [["nw", traceImage.x, traceImage.y], ["ne", traceImage.x + traceImage.w, traceImage.y],
        ["sw", traceImage.x, traceImage.y + traceImage.h], ["se", traceImage.x + traceImage.w, traceImage.y + traceImage.h]]
         .forEach(([name, hx, hy]) => parts.push(handleMarkup(hx, hy, "trace-" + name)));
