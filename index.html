@@ -420,21 +420,33 @@
   .tool-btn:hover { background: var(--surface-3); border-color: transparent; }
   .tool-btn svg { width: 19px; height: 19px; pointer-events: none; }
   .tool-btn.active, .tool-btn.active:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  /* Secondary "draw as knockout" toggle, nested inside the 5 shape tools
-     that can actually produce a knockout (Rect/Ellipse/Curve/Freeform/
-     Freehand - Line never gets one, see the Properties panel's own
-     s.type !== "line" gate). A <span>, not a nested <button> - a button
-     inside a button is invalid HTML and gets mis-parsed by the browser.
-     Reuses the --danger knockout-outline color language so it reads as
-     the same concept on canvas and on the toolbar. */
-  .knockout-badge {
-    position: absolute; right: -3px; bottom: -3px; width: 12px; height: 12px;
-    border-radius: 999px; background: var(--surface); border: 1.4px solid var(--danger);
-    display: flex; align-items: center; justify-content: center; pointer-events: auto;
+  /* "Draw as knockout" variant for the 5 shape tools that can actually
+     produce one (Rect/Ellipse/Curve/Freeform/Freehand - Line never
+     gets one, see the Properties panel's own s.type !== "line" gate),
+     Boxy-style: a corner arrow (.variant-arrow) opens a 2-item flyout
+     (.tool-flyout/.flyout-item below) instead of a permanent badge.
+     Picking a variant swaps whether THIS SAME icon renders dashed -
+     no second hand-drawn glyph needed, since every applicable icon is
+     already a pure stroked shape (corner/endpoint dots are explicitly
+     stroke:none, so dashing the stroke doesn't touch them). */
+  .tool-btn.knockout-active svg, .flyout-item[data-variant="knockout"] svg { stroke-dasharray: 2.2 1.7; }
+  .variant-arrow { position: absolute; right: 1px; bottom: 1px; width: 7px; height: 7px; color: var(--text-muted); opacity: 0.7; }
+  .variant-arrow svg { width: 100%; height: 100%; display: block; }
+  .tool-btn.knockout-active .variant-arrow { color: var(--danger); opacity: 1; }
+  .tool-flyout {
+    position: fixed; z-index: 1500; display: flex; flex-direction: column; gap: 2px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
   }
-  .knockout-badge::before { content: ""; width: 5px; height: 5px; border-radius: 999px; border: 1px dashed var(--danger); }
-  .knockout-badge.active { background: var(--danger); }
-  .knockout-badge.active::before { border-color: var(--surface); }
+  .tool-flyout[hidden] { display: none; }
+  .flyout-item {
+    width: 32px; height: 32px; padding: 0; min-width: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-color: transparent; background: transparent;
+  }
+  .flyout-item svg { width: 19px; height: 19px; pointer-events: none; }
+  .flyout-item:hover { background: var(--surface-3); }
+  .flyout-item.active { background: var(--accent); color: var(--accent-ink); }
   /* The old permanent 3-line shortcut paragraph moved here - same
      content, opened on demand from the "?" button instead of occupying
      canvas-chrome real estate all the time. */
@@ -777,12 +789,12 @@
       <div class="toolbar-dock" id="toolbarDock">
         <button class="tool-btn active" data-tool="select" title="Select / move (V)"><svg viewBox="0 0 20 20"><path d="M4 3 L4 16.5 L7.6 13.2 L10.1 18.2 L12.3 17.1 L9.8 12.1 L14.8 11.7 Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg></button>
         <button class="tool-btn" data-tool="multi" title="Select Multi — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="13" height="13" rx="1" stroke-dasharray="2.6 2.2"/><path d="M9 9 L16.5 11.5 L13.2 13 L11.5 16.3 Z" fill="currentColor" stroke="none"/></svg></button>
-        <button class="tool-btn" data-tool="rect" title="Rectangle — hold Shift for a square (R)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="13" height="11" rx="1.3"/></svg><span class="knockout-badge" data-knockout-toggle title="Draw as knockout — new shapes from this tool cut a hole through every other shape on their layer, live, instead of needing the Properties panel's Knockout checkbox afterward"></span></button>
-        <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="10" cy="10" rx="6.8" ry="5.4"/></svg><span class="knockout-badge" data-knockout-toggle title="Draw as knockout — new shapes from this tool cut a hole through every other shape on their layer, live, instead of needing the Properties panel's Knockout checkbox afterward"></span></button>
+        <button class="tool-btn" data-tool="rect" title="Rectangle — hold Shift for a square (R)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="13" height="11" rx="1.3"/></svg><span class="variant-arrow" data-variant-arrow title="More options — normal or knockout"><svg viewBox="0 0 8 8"><path d="M0 8 L8 8 L8 0 Z" fill="currentColor"/></svg></span></button>
+        <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="10" cy="10" rx="6.8" ry="5.4"/></svg><span class="variant-arrow" data-variant-arrow title="More options — normal or knockout"><svg viewBox="0 0 8 8"><path d="M0 8 L8 8 L8 0 Z" fill="currentColor"/></svg></span></button>
         <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="4.5" y1="15.5" x2="15.5" y2="4.5"/><circle cx="4.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="4.5" r="1.2" fill="currentColor" stroke="none"/></svg></button>
-        <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter (or double-tap) to finish (C)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 14.5 C 6.5 4.5, 13.5 4.5, 16.5 10"/><circle cx="3.5" cy="14.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="16.5" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg><span class="knockout-badge" data-knockout-toggle title="Draw as knockout — new shapes from this tool cut a hole through every other shape on their layer, live, instead of needing the Properties panel's Knockout checkbox afterward"></span></button>
-        <button class="tool-btn" data-tool="polygon" title="Freeform — click to place each corner, Enter (or double-tap) to finish, click the start point to close (no curves - drag has no effect) (S)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><polygon points="10,3.3 17,16 3,16"/></svg><span class="knockout-badge" data-knockout-toggle title="Draw as knockout — new shapes from this tool cut a hole through every other shape on their layer, live, instead of needing the Properties panel's Knockout checkbox afterward"></span></button>
-        <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15 Q 5.5 5.5, 8.5 10.5 T 13 6.5 T 17 9.5"/></svg><span class="knockout-badge" data-knockout-toggle title="Draw as knockout — new shapes from this tool cut a hole through every other shape on their layer, live, instead of needing the Properties panel's Knockout checkbox afterward"></span></button>
+        <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter (or double-tap) to finish (C)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 14.5 C 6.5 4.5, 13.5 4.5, 16.5 10"/><circle cx="3.5" cy="14.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="16.5" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg><span class="variant-arrow" data-variant-arrow title="More options — normal or knockout"><svg viewBox="0 0 8 8"><path d="M0 8 L8 8 L8 0 Z" fill="currentColor"/></svg></span></button>
+        <button class="tool-btn" data-tool="polygon" title="Freeform — click to place each corner, Enter (or double-tap) to finish, click the start point to close (no curves - drag has no effect) (S)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><polygon points="4,13 6,4.5 13,3 17,9 12,17"/><circle cx="4" cy="13" r="1.1" fill="currentColor" stroke="none"/><circle cx="13" cy="3" r="1.1" fill="currentColor" stroke="none"/><circle cx="17" cy="9" r="1.1" fill="currentColor" stroke="none"/></svg><span class="variant-arrow" data-variant-arrow title="More options — normal or knockout"><svg viewBox="0 0 8 8"><path d="M0 8 L8 8 L8 0 Z" fill="currentColor"/></svg></span></button>
+        <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15 Q 5.5 5.5, 8.5 10.5 T 13 6.5 T 17 9.5"/></svg><span class="variant-arrow" data-variant-arrow title="More options — normal or knockout"><svg viewBox="0 0 8 8"><path d="M0 8 L8 8 L8 0 Z" fill="currentColor"/></svg></span></button>
         <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="5" cy="5" r="2.1"/><circle cx="5" cy="15" r="2.1"/><line x1="6.6" y1="6.5" x2="17" y2="17"/><line x1="6.6" y1="13.5" x2="17" y2="3"/></svg></button>
         <button class="tool-btn" data-tool="pan" title="Pan — drag (finger or Pencil) to scroll around when zoomed in (P)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 11V5.6a1.15 1.15 0 0 1 2.3 0V10M8.5 10V4.4a1.15 1.15 0 0 1 2.3 0V10M10.8 10V5.1a1.1 1.1 0 0 1 2.2 0v5.9M13 11V7.5a1.05 1.05 0 0 1 2.1 0V13c0 2.9-1.9 5.2-4.8 5.2s-4.6-1.8-6-4.1L3.3 12a1.2 1.2 0 0 1 1.9-1.5L6.2 12"/></svg></button>
         <button class="tool-btn" data-tool="trace" title="Trace Image — drag inside it to move, drag a corner to resize (Shift keeps its aspect ratio) (T)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><rect x="3" y="4" width="14" height="12" rx="1.3"/><circle cx="7.6" cy="8" r="1.2" fill="currentColor" stroke="none"/><path d="M3.6 14.8 L8 10.6 L11.2 13.4 L13.8 11 L16.6 13.6"/></svg></button>
@@ -907,6 +919,7 @@
 </div>
 
 <div id="toolTip"></div>
+<div id="toolFlyout" class="tool-flyout" hidden></div>
 
 <script>
 (function () {
@@ -1024,7 +1037,7 @@
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
     overlay.innerHTML = '<div class="modal-box" style="max-width:560px;"><p class="shortcuts-help">' +
-      '<b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> or a double-tap finishes, click the start point to close) · <b>S</b> freeform (same as Curve but every click is a plain corner - dragging has no effect, no bezier curves) · <b>F</b> freehand (just draw, it\'s smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · the small dashed-circle badge on Rect/Ellipse/Curve/Freeform/Freehand toggles "draw as knockout" so new shapes cut a hole immediately, no trip to Properties needed · a selected shape\'s top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo' +
+      '<b>V</b> select · <b>R</b> rect · <b>O</b> ellipse · <b>L</b> line (drag its handle to bend into a curve) · <b>C</b> curve (click = corner, drag = smooth, <b>Enter</b> or a double-tap finishes, click the start point to close) · <b>S</b> freeform (same as Curve but every click is a plain corner - dragging has no effect, no bezier curves) · <b>F</b> freehand (just draw, it\'s smoothed on release) · <b>H</b> cut a hole (tap 2 shapes) · <b>M</b> multi-select (click shapes or drag to marquee-select, then bulk-edit weight, merge, or delete - merge unions filled shapes into one, groups outline shapes so they move together) · <b>P</b> pan around when zoomed in · the small corner arrow on Rect/Ellipse/Curve/Freeform/Freehand opens a Normal/Knockout picker for that tool - Knockout shapes cut a hole immediately, no trip to Properties needed · a selected shape\'s top handle rotates it, Skew X°/Y° in the panel skews it · <b>Shift</b> constrains/snaps · <b>Esc</b> cancels a drag · <b>Del</b> deletes · <b>Ctrl+Z</b> undo' +
       '</p><div class="btn-row"><button class="modal-ok primary">Close</button></div></div>';
     document.body.appendChild(overlay);
     const cleanup = () => document.body.removeChild(overlay);
@@ -2732,13 +2745,18 @@
   // already-touch-compatible gesture (proximity in logical/viewBox
   // space) and is untouched by this.
   let lastPenTap = null;
-  // Sticky "draw as knockout" mode, toggled from the small badge on
-  // Rect/Ellipse/Curve/Freeform/Freehand (the 5 tools that can produce
-  // a shape s.knockout already applies to - see the Properties panel's
-  // own s.type !== "line" gate). One shared flag, not per-tool - which
-  // drawing tool made a shape has no bearing on whether it can be a
-  // knockout, so all 5 badges reflect and toggle the same state.
-  let drawAsKnockout = false;
+  // Per-tool "draw as knockout" variant, reached via each button's
+  // corner .variant-arrow flyout (Boxy-style tool-group picker) - see
+  // openFlyoutFor below. Independent per tool by design (confirmed
+  // with user): Rect can stay in knockout mode while Ellipse stays
+  // normal. Only the 5 tools s.knockout already applies to get an
+  // entry (Properties panel's own s.type !== "line" gate) - there's no
+  // "line" key, so knockoutVariant[tool] is simply undefined/falsy
+  // when the Line tool is active, no extra guard needed at the
+  // creation sites below.
+  const knockoutVariant = { rect: false, ellipse: false, curve: false, polygon: false, freehand: false };
+  // Which tool's flyout is currently open, if any - null when closed.
+  let openFlyoutTool = null;
   let shiftHeld = false;
   // Touch equivalent of holding Shift for aspect-ratio lock: a second
   // finger landing WHILE a lockable single-finger drag (Rect/Ellipse
@@ -3467,10 +3485,7 @@
         (draftShape.type === "ellipse" && draftShape.rx < 0.15 && draftShape.ry < 0.15) ||
         (draftShape.type === "line" && Math.hypot(draftShape.x2 - draftShape.x1, draftShape.y2 - draftShape.y1) < 0.3);
       if (!tooSmall) {
-        // Line never gets a knockout badge (Properties gates Knockout
-        // to s.type !== "line" too) - guarded here since this push
-        // site is shared with Line's own draftShape.
-        if (drawAsKnockout && draftShape.type !== "line") draftShape.knockout = true;
+        if (knockoutVariant[tool]) draftShape.knockout = true;
         shapes().push(draftShape);
         selectedId = draftShape.id;
         pushHistory(); saveProject();
@@ -3510,7 +3525,7 @@
         const anchors = pointsToSmoothAnchors(ptsForAnchors, closed);
         if (anchors.length >= 2) {
           const shape = { id: uid(), type: "path", style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, closed, anchors, layer: currentLayerId() };
-          if (drawAsKnockout) shape.knockout = true;
+          if (knockoutVariant.freehand) shape.knockout = true;
           shapes().push(shape);
           selectedId = shape.id;
           pushHistory(); saveProject();
@@ -3597,7 +3612,7 @@
   function commitPenDraft() {
     if (!penDraft || penDraft.anchors.length < 2) { penDraft = null; penPendingDrag = null; render(); return; }
     const shape = { id: uid(), type: "path", style: "outline", strokeWidth: defaultStrokeWidth, rotation: 0, skewX: 0, skewY: 0, closed: penDraft.closed, anchors: penDraft.anchors, layer: currentLayerId() };
-    if (drawAsKnockout) shape.knockout = true;
+    if (knockoutVariant[tool]) shape.knockout = true;
     shapes().push(shape);
     selectedId = shape.id;
     penDraft = null; penPendingDrag = null;
@@ -3625,6 +3640,7 @@
     if (e.key === "m" || e.key === "M") setTool("multi");
     if (e.key === "t" || e.key === "T") setTool("trace");
     if (e.key === "Enter" && (tool === "curve" || tool === "polygon") && penDraft) { commitPenDraft(); render(); }
+    if (e.key === "Escape" && openFlyoutTool) { closeFlyout(); return; }
     if (e.key === "Escape") {
       if (!cancelActiveDrag()) {
         if (penDraft) { penDraft = null; penPendingDrag = null; render(); }
@@ -3874,6 +3890,7 @@
   function setTool(name) {
     if ((tool === "curve" || tool === "polygon") && penDraft) { penDraft = null; penPendingDrag = null; }
     lastPenTap = null;
+    closeFlyout();
     tool = name;
     if (name !== "select") selectedId = null;
     // boolSet is shared between Select (shift-click) and Cut (plain tap) so
@@ -3899,51 +3916,106 @@
   // moment one was clicked.
   document.querySelectorAll("#toolbarDock .tool-btn").forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
 
-  // "Draw as knockout" badges - a <span> nested inside 5 of the
-  // #toolbarDock buttons (see the CSS comment on .knockout-badge for
-  // why not a nested <button>). stopPropagation so a badge tap doesn't
-  // also bubble into the parent button's own click listener above and
-  // fire setTool() - same class of accidental-collision bug already
-  // caught once this session with the bare ".tool-btn" selector.
-  function setDrawAsKnockout(v) {
-    drawAsKnockout = v;
-    document.querySelectorAll(".knockout-badge").forEach((b) => b.classList.toggle("active", drawAsKnockout));
-  }
-  document.querySelectorAll(".knockout-badge").forEach((b) => b.addEventListener("click", (e) => {
-    e.stopPropagation();
-    setDrawAsKnockout(!drawAsKnockout);
-  }));
-
   // Custom on-brand toolbar tooltip - replaces the native title=
-  // tooltip (slow ~1s delay, unstyled) for #toolbarDock's own tools
-  // and the knockout badges nested in some of them. Each element's
-  // title text moves to data-tip so the native tooltip can't also show
-  // (two overlapping tooltips would look unpolished) - mouseenter/
-  // mouseleave only, no touch handling, since touch has no hover
-  // concept and the double-tap gesture above is what serves touch
-  // instead.
-  (function setUpToolbarTooltips() {
-    const tip = document.getElementById("toolTip");
-    let showTimer = null;
-    function hide() { clearTimeout(showTimer); tip.classList.remove("visible"); }
-    document.querySelectorAll("#toolbarDock .tool-btn, .knockout-badge").forEach((el) => {
-      const text = el.getAttribute("title");
-      if (!text) return;
-      el.removeAttribute("title");
-      el.setAttribute("data-tip", text);
-      el.addEventListener("mouseenter", () => {
-        clearTimeout(showTimer);
-        showTimer = setTimeout(() => {
-          const r = el.getBoundingClientRect();
-          tip.textContent = text;
-          tip.style.left = (r.right + 10) + "px";
-          tip.style.top = (r.top + r.height / 2) + "px";
-          tip.classList.add("visible");
-        }, 150);
-      });
-      el.addEventListener("mouseleave", hide);
+  // tooltip (slow ~1s delay, unstyled) for #toolbarDock's own tools,
+  // their corner .variant-arrow flyout triggers, and (via wireToolTip
+  // being called again below) the flyout items themselves, created
+  // fresh each time a flyout opens. Each element's title text moves to
+  // data-tip so the native tooltip can't also show (two overlapping
+  // tooltips would look unpolished) - mouseenter/mouseleave only, no
+  // touch handling, since touch has no hover concept and the
+  // double-tap gesture above is what serves touch instead.
+  const toolTipEl = document.getElementById("toolTip");
+  let toolTipShowTimer = null;
+  function hideToolTip() { clearTimeout(toolTipShowTimer); toolTipEl.classList.remove("visible"); }
+  function wireToolTip(el) {
+    const text = el.getAttribute("title");
+    if (!text) return;
+    el.removeAttribute("title");
+    el.setAttribute("data-tip", text);
+    el.addEventListener("mouseenter", () => {
+      clearTimeout(toolTipShowTimer);
+      toolTipShowTimer = setTimeout(() => {
+        const r = el.getBoundingClientRect();
+        toolTipEl.textContent = text;
+        toolTipEl.style.left = (r.right + 10) + "px";
+        toolTipEl.style.top = (r.top + r.height / 2) + "px";
+        toolTipEl.classList.add("visible");
+      }, 150);
     });
-  })();
+    el.addEventListener("mouseleave", hideToolTip);
+  }
+  document.querySelectorAll("#toolbarDock .tool-btn, .variant-arrow").forEach(wireToolTip);
+
+  // "Draw as knockout" as a Boxy-style tool-group flyout, reached via
+  // each applicable button's corner .variant-arrow. Short, friendly
+  // names + a shared hint string used to build each flyout item's own
+  // tooltip text.
+  const TOOL_NAMES = { rect: "Rectangle", ellipse: "Ellipse", curve: "Curve", polygon: "Freeform", freehand: "Freehand" };
+  const KNOCKOUT_HINT = "cuts a hole through every other shape on this layer, live, instead of needing the Properties panel's Knockout checkbox afterward";
+
+  function setKnockoutVariant(toolName, on) {
+    knockoutVariant[toolName] = on;
+    const btn = document.querySelector('#toolbarDock .tool-btn[data-tool="' + toolName + '"]');
+    if (btn) btn.classList.toggle("knockout-active", on);
+  }
+
+  function closeFlyout() {
+    document.getElementById("toolFlyout").hidden = true;
+    openFlyoutTool = null;
+  }
+
+  // Rebuilds #toolFlyout's contents from the clicked button's OWN svg
+  // (cloned, not a second hand-drawn icon) each time it opens - the
+  // Knockout item's dashed look comes from the shared CSS rule keyed
+  // off data-variant="knockout", same rule that dashes the main
+  // button's icon once picked (see the .knockout-active CSS comment).
+  function openFlyoutFor(toolName, arrowEl) {
+    if (openFlyoutTool === toolName) { closeFlyout(); return; }
+    const btn = arrowEl.closest(".tool-btn");
+    const srcSvg = btn.querySelector("svg");
+    const flyout = document.getElementById("toolFlyout");
+    flyout.innerHTML = "";
+    [
+      { variant: "normal", on: false, tip: TOOL_NAMES[toolName] + " — draws a normal shape" },
+      { variant: "knockout", on: true, tip: TOOL_NAMES[toolName] + " (Knockout) — " + KNOCKOUT_HINT }
+    ].forEach((opt) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "flyout-item" + (knockoutVariant[toolName] === opt.on ? " active" : "");
+      item.dataset.variant = opt.variant;
+      item.appendChild(srcSvg.cloneNode(true));
+      item.title = opt.tip;
+      item.addEventListener("click", () => {
+        setKnockoutVariant(toolName, opt.on);
+        setTool(toolName);
+      });
+      flyout.appendChild(item);
+      wireToolTip(item);
+    });
+    const r = btn.getBoundingClientRect();
+    flyout.style.left = (r.right + 8) + "px";
+    flyout.style.top = r.top + "px";
+    flyout.hidden = false;
+    openFlyoutTool = toolName;
+  }
+
+  // stopPropagation so an arrow tap doesn't also bubble into the
+  // parent button's own click listener above and fire setTool() -
+  // deliberate, worked through during planning: setTool() closes any
+  // open flyout, so if the arrow's click ALSO triggered setTool via
+  // bubbling, the flyout just opened by this same click would
+  // immediately close again. Opening the flyout never changes the
+  // active tool by itself - only picking an item (above) does that.
+  document.querySelectorAll("#toolbarDock .variant-arrow").forEach((arrow) => {
+    arrow.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openFlyoutFor(arrow.closest(".tool-btn").dataset.tool, arrow);
+    });
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (openFlyoutTool && !e.target.closest("#toolFlyout") && !e.target.closest(".variant-arrow")) closeFlyout();
+  });
 
   document.getElementById("toggleRightBtn").addEventListener("click", () => {
     const grid = document.querySelector(".body-grid");
