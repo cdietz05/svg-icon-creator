@@ -179,6 +179,33 @@
   header.top h1 { font-size: 18px; }
   header.top .sub { font-size: 12px; color: var(--text-muted); margin-left: auto; }
 
+  /* Real dropdown menu bar (File / Export) - each .menu is its own
+     relatively-positioned trigger+dropdown pair, opened by toggling
+     .open on the .menu itself (see the menubar click/outside-click/
+     Escape wiring near setTool). Boxy-style top menu, but only the two
+     groups this app actually needs - not a fake File/Edit/View/... row
+     with items that don't apply here. */
+  .menubar { display: flex; gap: 2px; position: relative; }
+  .menu { position: relative; }
+  .menu-trigger { background: transparent; border-color: transparent; font-size: 13px; }
+  .menu-trigger:hover { background: var(--surface-2); }
+  .menu.open .menu-trigger { background: var(--surface-3); }
+  .menu-dropdown {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 1000;
+    min-width: 210px; max-width: 90vw;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+    padding: 6px; flex-direction: column; gap: 2px;
+  }
+  .menu.open .menu-dropdown { display: flex; }
+  .menu-dropdown-panel { min-width: 320px; }
+  .menu-dropdown button, .menu-dropdown label.menu-item-file {
+    background: transparent; border-color: transparent; text-align: left;
+    justify-content: flex-start; width: 100%; padding: 7px 9px; border-radius: 6px;
+  }
+  .menu-dropdown button:hover, .menu-dropdown label.menu-item-file:hover { background: var(--surface-2); }
+  .menu-sep { height: 1px; background: var(--border); margin: 4px 2px; flex: none; }
+
   .body-grid {
     position: relative;
     display: grid;
@@ -351,7 +378,6 @@
      use. #layerList used to hardcode its own max-height here, which
      (being a more specific id selector) would have silently overridden
      .panel-body's and capped it regardless of any resize drag. */
-  #iconList { padding: 6px; display: flex; flex-direction: column; gap: 2px; }
   #layerList { padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 
   .icon-row {
@@ -461,7 +487,7 @@
     font-family: var(--display); font-weight: 700; font-size: 14px;
   }
 
-  .canvas-wrap { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .canvas-wrap { display: flex; flex-direction: row; min-width: 0; min-height: 0; }
   .canvas-viewport {
     flex: 1;
     overflow: auto;
@@ -653,43 +679,40 @@
   .radius-drag-label-bg { fill: var(--surface); stroke: var(--border); }
   .radius-drag-label-text { fill: var(--text); font-family: var(--mono); }
 
-  /* The drawing toolbar - starts DOCKED (a plain top-of-canvas bar, see
-     .toolbar-dock below) but #floatingToolbarBody (the actual buttons -
-     one shared element, moved between the two shells via appendChild,
-     not duplicated) can be undocked into this floating/draggable/
-     resizable panel instead, the same pattern the preview panel already
-     uses. Collapsible down to just the 9 drawing tools (.toolbar-extra
-     hides the rest: undo/redo, snap/grid, zoom, weight, smooth, canvas
-     size) for a genuinely smaller footprint when undocked and the
-     secondary controls aren't needed right now. */
-  .floating-toolbar {
-    position: fixed; top: 70px; left: 250px; width: 730px; max-width: 90vw;
-    min-width: 280px; min-height: 120px; max-height: 90vh;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-    display: flex; flex-direction: column; z-index: 950; overflow: hidden;
-  }
-  .floating-toolbar.hidden { display: none; }
-  .floating-toolbar-head {
-    flex: none; display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--border);
-    font-family: var(--display); font-size: 12px; letter-spacing: 0.04em; color: var(--text-muted);
-    cursor: move; touch-action: none; -webkit-user-select: none; user-select: none;
-  }
-  .floating-toolbar-body {
-    flex: 1; min-height: 0; align-content: flex-start;
-    display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap;
+  /* Vertical drawing-tool rail, fixed to the left edge of the canvas
+     area (Phase 2 redesign - was a horizontal top bar with text labels
+     in Phase 1, and before that a bar that could also undock into a
+     floating window; the undock feature is gone as of this round, see
+     the removed setUpFloatingToolbar comment near setUpFloatingPreview
+     for why). Just the 11 drawing tools live here now - everything
+     else (Undo/Redo, Snap/Grid, Zoom, Weight, Smooth, Canvas size,
+     Help) moved to #contextBar, a horizontal row above the canvas
+     instead, matching Boxy's own split (a left tool rail plus a wide
+     top options row, rather than cramming both into one narrow
+     column). */
+  .toolbar-dock {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 6px; flex: none;
+    border-right: 1px solid var(--border); background: var(--surface);
     overflow-y: auto;
   }
-  .floating-toolbar.collapsed .toolbar-extra { display: none; }
-  .floating-toolbar.collapsed .floating-toolbar-body { gap: 6px; }
-
-  /* Docked state: #floatingToolbarBody sits here instead, styled to
-     look like a plain top-of-canvas bar again - :empty collapses it to
-     nothing (no stray border/padding/line) once the body's been moved
-     out into the floating panel above. */
-  .toolbar-dock {
-    display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap;
+  .canvas-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; }
+  .icon-strip {
+    display: flex; align-items: center; gap: 4px; padding: 6px 10px; flex: none;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  #iconList { display: flex; flex-direction: row; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; min-width: 0; }
+  /* Scoped to icon-strip specifically (not the bare .icon-row class,
+     which the Layers panel also uses, staying vertical/full-width in
+     the left sidebar) - a fixed max-width keeps each tab compact in a
+     horizontal strip instead of stretching to fill a whole row. */
+  #iconList .icon-row { flex: none; max-width: 150px; }
+  .icon-strip-add {
+    flex: none; width: 28px; height: 28px; padding: 0; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center; font-size: 16px;
+  }
+  .context-bar {
+    display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap; flex: none;
     border-bottom: 1px solid var(--border); background: var(--surface);
   }
   .toolbar-dock:empty { padding: 0; border-bottom: none; }
@@ -715,6 +738,53 @@
 <div class="app">
   <header class="top">
     <h1>SVG Icon Creator</h1>
+    <nav class="menubar" id="menubar">
+      <div class="menu" data-menu="file">
+        <button class="menu-trigger">File ▾</button>
+        <div class="menu-dropdown">
+          <button id="newProjectBtn">New</button>
+          <button id="exportProjectBtn">Save .json</button>
+          <label class="menu-item-file">Load .json<input type="file" id="importProjectInput" accept="application/json" hidden></label>
+          <button id="importSvgMenuBtn">Import SVG markup…</button>
+          <div class="menu-sep"></div>
+          <button id="copyProjectTextBtn" title="If Save .json isn't producing a real download in your browser, copy the project as text instead - works around that entirely.">Copy as Text</button>
+          <button id="pasteProjectTextBtn" title="Load a project from text copied via Copy as Text on another device/browser">Paste Text</button>
+          <div class="menu-sep"></div>
+          <button id="openProjectTabBtn" title="Tries your device's native Share sheet (Save to Files, etc.) first, then falls back to opening the JSON as its own page - use Save Page As / Ctrl+S there. Works even where the Save .json button's download doesn't.">Share / Open in Tab</button>
+        </div>
+      </div>
+      <div class="menu" data-menu="export">
+        <button class="menu-trigger">Export ▾</button>
+        <div class="menu-dropdown menu-dropdown-panel" id="exportPanelBody">
+          <div class="radio-row">
+            <label><input type="radio" name="exportMode" value="active" checked> This icon</label>
+            <label><input type="radio" name="exportMode" value="all"> All icons</label>
+            <label><input type="radio" name="exportMode" value="standalone" title="Bakes an explicit color into fill/stroke instead of currentColor, and skips nothing else this tool relies on being modern - viewable standalone in an <img> tag, an old browser, or any SVG viewer, not just inlined in a page that can supply currentColor via CSS."> Standalone</label>
+          </div>
+          <p class="muted" style="font-size:10.5px;"><b>This icon</b>/<b>All icons</b> always export single-color (plain <code>currentColor</code>) - the app embedding it themes it via CSS. <b>Standalone</b> (and the .png/.webp export below it) bakes in each shape's own Custom color (set on the shape itself, in Properties) - so those keep every color you see on screen.</p>
+          <div class="prop-row" id="standaloneSizeRow" style="display:none">
+            <label>Export size</label>
+            <input type="number" id="standaloneSize" min="16" max="4096" step="1" value="1024"> px
+          </div>
+          <textarea id="exportText" readonly></textarea>
+          <p class="muted" style="font-size:10.5px;">None of the buttons below responding (some browsers/devices block all of them)? Tap inside the box above, tap <b>Select All</b>, then <b>Copy</b> from the menu that pops up - that's your device doing the copying, not this page, so no permission can block it.</p>
+          <div class="btn-row">
+            <button id="copyBtn">Copy</button>
+            <button id="downloadBtn" class="primary">Download .svg</button>
+          </div>
+          <div class="btn-row" id="rasterExportRow" style="display:none">
+            <button id="downloadPngBtn" title="Rasterized at the Export size above, using Standalone mode's real colors and transparency where nothing is drawn.">Download .png</button>
+            <button id="downloadWebpBtn" title="Rasterized at the Export size above, using Standalone mode's real colors and transparency where nothing is drawn.">Download .webp</button>
+          </div>
+          <div class="btn-row">
+            <button id="openSvgTabBtn" title="Tries your device's native Share sheet (Save to Files, etc.) first, then falls back to opening the SVG as its own page - use Save Page As / Ctrl+S there. Works even where the Download button's download doesn't.">Share / Open in Tab</button>
+          </div>
+          <div class="btn-row">
+            <button id="navigateSvgBtn" title="Last resort: replaces THIS page with the raw SVG, in case your browser blocks opening a new tab specifically but still allows navigating the current one. Your project stays saved - use the Back button to return here.">Direct Navigate (leaves this page)</button>
+          </div>
+        </div>
+      </div>
+    </nav>
     <span class="sub">Autosaves to this browser · export raw SVG when ready</span>
     <button id="themeToggleBtn" class="theme-toggle-btn" title="Switch theme">☾</button>
   </header>
@@ -725,12 +795,6 @@
     <div class="col-resize-handle" id="colResizeLeft" title="Drag to resize"></div>
     <div class="col-resize-handle" id="colResizeRight" title="Drag to resize"></div>
     <aside class="left">
-      <div class="panel-head">Icons</div>
-      <div id="iconList" class="panel-body"></div>
-      <div class="panel-divider" data-resize-target="iconList"></div>
-      <div class="stack" style="border-top:1px solid var(--border)">
-        <button id="addIconBtn">+ Add Icon</button>
-      </div>
       <div class="stack" style="border-top:1px solid var(--border)">
         <div class="panel-head" style="padding-left:0" title="Knockouts only cut shapes on their own layer. Draw on a layer above another to sit on top of its knockouts untouched.">Layers</div>
         <div id="layerList" class="panel-body"></div>
@@ -753,36 +817,68 @@
           <input type="range" id="traceOpacitySlider" min="0.05" max="1" step="0.05" value="0.4">
         </div>
       </div>
-      <div class="stack" style="border-top:1px solid var(--border); margin-top:auto">
-        <div class="panel-head" style="padding-left:0">Project</div>
-        <div class="btn-row">
-          <button id="newProjectBtn">New</button>
-          <button id="exportProjectBtn">Save .json</button>
-        </div>
-        <label class="btn-row" style="justify-content:center; cursor:pointer; border:1px solid var(--border); border-radius:6px; padding:5px 10px; font-size:12px;">
-          Load .json
-          <input type="file" id="importProjectInput" accept="application/json" hidden>
-        </label>
-        <div class="btn-row">
-          <button id="copyProjectTextBtn" title="If Save .json isn't producing a real download in your browser, copy the project as text instead - works around that entirely.">Copy as Text</button>
-          <button id="pasteProjectTextBtn" title="Load a project from text copied via Copy as Text on another device/browser">Paste Text</button>
-        </div>
-        <div class="btn-row">
-          <button id="openProjectTabBtn" title="Tries your device's native Share sheet (Save to Files, etc.) first, then falls back to opening the JSON as its own page - use Save Page As / Ctrl+S there. Works even where the Save .json button's download doesn't.">Share / Open in Tab</button>
-        </div>
-      </div>
     </aside>
 
     <div class="canvas-wrap">
-      <div class="toolbar-dock" id="toolbarDock"></div>
-      <div class="canvas-viewport" id="canvasViewport">
-        <svg id="artboard" xmlns="http://www.w3.org/2000/svg">
-          <g id="canvasBgLayer"></g>
-          <g id="traceLayer"></g>
-          <g id="gridLayer"></g>
-          <g id="shapesLayer"></g>
-          <g id="uiLayer"></g>
-        </svg>
+      <div class="toolbar-dock" id="toolbarDock">
+        <button class="tool-btn active" data-tool="select" title="Select / move (V)"><svg viewBox="0 0 20 20"><path d="M4 3 L4 16.5 L7.6 13.2 L10.1 18.2 L12.3 17.1 L9.8 12.1 L14.8 11.7 Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg></button>
+        <button class="tool-btn" data-tool="multi" title="Select Multi — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="13" height="13" rx="1" stroke-dasharray="2.6 2.2"/><path d="M9 9 L16.5 11.5 L13.2 13 L11.5 16.3 Z" fill="currentColor" stroke="none"/></svg></button>
+        <button class="tool-btn" data-tool="rect" title="Rectangle — hold Shift for a square (R)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="13" height="11" rx="1.3"/></svg></button>
+        <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="10" cy="10" rx="6.8" ry="5.4"/></svg></button>
+        <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="4.5" y1="15.5" x2="15.5" y2="4.5"/><circle cx="4.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="4.5" r="1.2" fill="currentColor" stroke="none"/></svg></button>
+        <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter to finish (C)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 14.5 C 6.5 4.5, 13.5 4.5, 16.5 10"/><circle cx="3.5" cy="14.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="16.5" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg></button>
+        <button class="tool-btn" data-tool="polygon" title="Freeform — click to place each corner, Enter to finish, click the start point to close (no curves - drag has no effect) (S)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><polygon points="10,3.3 17,16 3,16"/></svg></button>
+        <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15 Q 5.5 5.5, 8.5 10.5 T 13 6.5 T 17 9.5"/></svg></button>
+        <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="5" cy="5" r="2.1"/><circle cx="5" cy="15" r="2.1"/><line x1="6.6" y1="6.5" x2="17" y2="17"/><line x1="6.6" y1="13.5" x2="17" y2="3"/></svg></button>
+        <button class="tool-btn" data-tool="pan" title="Pan — drag (finger or Pencil) to scroll around when zoomed in (P)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 11V5.6a1.15 1.15 0 0 1 2.3 0V10M8.5 10V4.4a1.15 1.15 0 0 1 2.3 0V10M10.8 10V5.1a1.1 1.1 0 0 1 2.2 0v5.9M13 11V7.5a1.05 1.05 0 0 1 2.1 0V13c0 2.9-1.9 5.2-4.8 5.2s-4.6-1.8-6-4.1L3.3 12a1.2 1.2 0 0 1 1.9-1.5L6.2 12"/></svg></button>
+        <button class="tool-btn" data-tool="trace" title="Trace Image — drag inside it to move, drag a corner to resize (Shift keeps its aspect ratio) (T)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><rect x="3" y="4" width="14" height="12" rx="1.3"/><circle cx="7.6" cy="8" r="1.2" fill="currentColor" stroke="none"/><path d="M3.6 14.8 L8 10.6 L11.2 13.4 L13.8 11 L16.6 13.6"/></svg></button>
+      </div>
+      <div class="canvas-main">
+        <div class="icon-strip" id="iconStrip">
+          <div id="iconList"></div>
+          <button id="addIconBtn" class="icon-strip-add" title="Add a new icon to this pack">+</button>
+        </div>
+        <div class="context-bar" id="contextBar">
+          <div class="tool-group">
+            <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
+            <button id="redoBtn" title="Redo (Ctrl+Y)">Redo</button>
+          </div>
+          <div class="tool-group">
+            <label title="Snap new points and drags to the grid"><input type="checkbox" id="snapToggle" checked>Snap</label>
+            <label title="Show/hide the background grid"><input type="checkbox" id="gridToggle" checked>Grid</label>
+            <select id="gridMode" title="Grid pattern used for the visible grid and for Snap">
+              <option value="square" selected>Square</option>
+              <option value="isometric">Isometric</option>
+            </select>
+            <label title="Snap increment, in viewBox units - smaller values allow finer, more precise placement and drags">Grid Scale <input type="number" id="gridStepInput" value="0.5" min="0.05" max="8" step="0.05" style="width:64px"></label>
+          </div>
+          <div class="tool-group">
+            <button id="zoomOut" title="Zoom out">−</button>
+            <span id="zoomLabel" style="font-family:var(--mono); font-size:11px; color:var(--text-muted); min-width:56px; text-align:center;"></span>
+            <button id="zoomIn" title="Zoom in">+</button>
+          </div>
+          <div class="tool-group" id="weightGroup">
+            <label>Weight <input type="number" id="defaultStrokeWidth" value="1.6" step="0.1" min="0.2" style="width:60px" title="Stroke width used for newly drawn shapes"></label>
+          </div>
+          <div class="tool-group" id="smoothGroup">
+            <label>Smooth <input type="range" id="freehandSmoothing" min="0" max="100" value="50" step="1" style="width:70px" title="How much the Freehand tool smooths out jitter from a shaky hand - higher removes more of the raw wobble"><span id="freehandSmoothingLabel" style="font-family:var(--mono); font-size:10.5px; color:var(--text-muted); min-width:30px; display:inline-block; text-align:right;">50%</span></label>
+          </div>
+          <div class="tool-group">
+            <label title="Icon's own coordinate grid size, in viewBox units - not the exported pixel size">Canvas <input type="number" id="vbW" value="24" min="4" max="512" style="width:48px"> × <input type="number" id="vbH" value="24" min="4" max="512" style="width:48px"></label>
+          </div>
+          <div class="tool-group" style="margin-left:auto;">
+            <button id="shortcutsHelpBtn" class="help-btn" title="Keyboard shortcuts &amp; tool tips">?</button>
+          </div>
+        </div>
+        <div class="canvas-viewport" id="canvasViewport">
+          <svg id="artboard" xmlns="http://www.w3.org/2000/svg">
+            <g id="canvasBgLayer"></g>
+            <g id="traceLayer"></g>
+            <g id="gridLayer"></g>
+            <g id="shapesLayer"></g>
+            <g id="uiLayer"></g>
+          </svg>
+        </div>
       </div>
     </div>
 
@@ -807,103 +903,8 @@
         </div>
       </div>
       <div class="panel-divider" data-resize-target="previewPanelBody"></div>
-
-      <div class="panel-subhead"><span class="panel-head-title"><button class="panel-collapse-btn" data-collapse-target="importPanelBody" title="Collapse/expand this section">▾</button>Import SVG markup</span></div>
-      <div class="stack panel-body" id="importPanelBody">
-        <textarea id="importText" placeholder="Paste rect/circle/ellipse/line/polygon/path markup here (e.g. from a previous draft) to load it into the active icon as editable shapes."></textarea>
-        <button id="importBtn">Import into this icon</button>
-      </div>
-      <div class="panel-divider" data-resize-target="importPanelBody"></div>
-
-      <div class="panel-subhead"><span class="panel-head-title"><button class="panel-collapse-btn" data-collapse-target="exportPanelBody" title="Collapse/expand this section">▾</button>Export</span></div>
-      <div class="stack panel-body" id="exportPanelBody">
-        <div class="radio-row">
-          <label><input type="radio" name="exportMode" value="active" checked> This icon</label>
-          <label><input type="radio" name="exportMode" value="all"> All icons</label>
-          <label><input type="radio" name="exportMode" value="standalone" title="Bakes an explicit color into fill/stroke instead of currentColor, and skips nothing else this tool relies on being modern - viewable standalone in an <img> tag, an old browser, or any SVG viewer, not just inlined in a page that can supply currentColor via CSS."> Standalone</label>
-        </div>
-        <p class="muted" style="font-size:10.5px;"><b>This icon</b>/<b>All icons</b> always export single-color (plain <code>currentColor</code>) - the app embedding it themes it via CSS. <b>Standalone</b> (and the .png/.webp export below it) bakes in each shape's own Custom color (set on the shape itself, in Properties) - so those keep every color you see on screen.</p>
-        <div class="prop-row" id="standaloneSizeRow" style="display:none">
-          <label>Export size</label>
-          <input type="number" id="standaloneSize" min="16" max="4096" step="1" value="1024"> px
-        </div>
-        <textarea id="exportText" readonly></textarea>
-        <p class="muted" style="font-size:10.5px;">None of the buttons below responding (some browsers/devices block all of them)? Tap inside the box above, tap <b>Select All</b>, then <b>Copy</b> from the menu that pops up - that's your device doing the copying, not this page, so no permission can block it.</p>
-        <div class="btn-row">
-          <button id="copyBtn">Copy</button>
-          <button id="downloadBtn" class="primary">Download .svg</button>
-        </div>
-        <div class="btn-row" id="rasterExportRow" style="display:none">
-          <button id="downloadPngBtn" title="Rasterized at the Export size above, using Standalone mode's real colors and transparency where nothing is drawn.">Download .png</button>
-          <button id="downloadWebpBtn" title="Rasterized at the Export size above, using Standalone mode's real colors and transparency where nothing is drawn.">Download .webp</button>
-        </div>
-        <div class="btn-row">
-          <button id="openSvgTabBtn" title="Tries your device's native Share sheet (Save to Files, etc.) first, then falls back to opening the SVG as its own page - use Save Page As / Ctrl+S there. Works even where the Download button's download doesn't.">Share / Open in Tab</button>
-        </div>
-        <div class="btn-row">
-          <button id="navigateSvgBtn" title="Last resort: replaces THIS page with the raw SVG, in case your browser blocks opening a new tab specifically but still allows navigating the current one. Your project stays saved - use the Back button to return here.">Direct Navigate (leaves this page)</button>
-        </div>
-      </div>
     </aside>
   </div>
-</div>
-
-<div class="floating-toolbar hidden" id="floatingToolbar">
-  <div class="floating-toolbar-head" id="floatingToolbarHead">
-    <span>Tools</span>
-    <span class="floating-preview-head-actions">
-      <button id="toolbarCollapseBtn" class="floating-preview-close" title="Collapse to just the drawing tools">−</button>
-    </span>
-  </div>
-  <div class="floating-toolbar-body" id="floatingToolbarBody">
-    <div class="tool-group">
-      <button id="toolbarDockToggle" title="Undock the toolbar so it can float, move, and be resized">⇱</button>
-    </div>
-    <div class="tool-group">
-      <button class="tool-btn active" data-tool="select" title="Select / move (V)"><svg viewBox="0 0 20 20"><path d="M4 3 L4 16.5 L7.6 13.2 L10.1 18.2 L12.3 17.1 L9.8 12.1 L14.8 11.7 Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg></button>
-      <button class="tool-btn" data-tool="multi" title="Select Multi — click shapes, or drag an empty area to marquee-select several, then bulk-edit weight, merge, or delete (M)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="13" height="13" rx="1" stroke-dasharray="2.6 2.2"/><path d="M9 9 L16.5 11.5 L13.2 13 L11.5 16.3 Z" fill="currentColor" stroke="none"/></svg></button>
-      <button class="tool-btn" data-tool="rect" title="Rectangle — hold Shift for a square (R)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="13" height="11" rx="1.3"/></svg></button>
-      <button class="tool-btn" data-tool="ellipse" title="Ellipse — hold Shift for a circle (O)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="10" cy="10" rx="6.8" ry="5.4"/></svg></button>
-      <button class="tool-btn" data-tool="line" title="Line — hold Shift to snap angle (L)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="4.5" y1="15.5" x2="15.5" y2="4.5"/><circle cx="4.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="4.5" r="1.2" fill="currentColor" stroke="none"/></svg></button>
-      <button class="tool-btn" data-tool="curve" title="Curve — click for a corner, drag for a smooth point, Enter to finish (C)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 14.5 C 6.5 4.5, 13.5 4.5, 16.5 10"/><circle cx="3.5" cy="14.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="16.5" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg></button>
-      <button class="tool-btn" data-tool="polygon" title="Freeform — click to place each corner, Enter to finish, click the start point to close (no curves - drag has no effect) (S)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><polygon points="10,3.3 17,16 3,16"/></svg></button>
-      <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15 Q 5.5 5.5, 8.5 10.5 T 13 6.5 T 17 9.5"/></svg></button>
-      <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="5" cy="5" r="2.1"/><circle cx="5" cy="15" r="2.1"/><line x1="6.6" y1="6.5" x2="17" y2="17"/><line x1="6.6" y1="13.5" x2="17" y2="3"/></svg></button>
-      <button class="tool-btn" data-tool="pan" title="Pan — drag (finger or Pencil) to scroll around when zoomed in (P)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 11V5.6a1.15 1.15 0 0 1 2.3 0V10M8.5 10V4.4a1.15 1.15 0 0 1 2.3 0V10M10.8 10V5.1a1.1 1.1 0 0 1 2.2 0v5.9M13 11V7.5a1.05 1.05 0 0 1 2.1 0V13c0 2.9-1.9 5.2-4.8 5.2s-4.6-1.8-6-4.1L3.3 12a1.2 1.2 0 0 1 1.9-1.5L6.2 12"/></svg></button>
-      <button class="tool-btn" data-tool="trace" title="Trace Image — drag inside it to move, drag a corner to resize (Shift keeps its aspect ratio) (T)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><rect x="3" y="4" width="14" height="12" rx="1.3"/><circle cx="7.6" cy="8" r="1.2" fill="currentColor" stroke="none"/><path d="M3.6 14.8 L8 10.6 L11.2 13.4 L13.8 11 L16.6 13.6"/></svg></button>
-    </div>
-    <div class="tool-group toolbar-extra">
-      <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
-      <button id="redoBtn" title="Redo (Ctrl+Y)">Redo</button>
-    </div>
-    <div class="tool-group toolbar-extra">
-      <label title="Snap new points and drags to the grid"><input type="checkbox" id="snapToggle" checked>Snap</label>
-      <label title="Show/hide the background grid"><input type="checkbox" id="gridToggle" checked>Grid</label>
-      <select id="gridMode" title="Grid pattern used for the visible grid and for Snap">
-        <option value="square" selected>Square</option>
-        <option value="isometric">Isometric</option>
-      </select>
-      <label title="Snap increment, in viewBox units - smaller values allow finer, more precise placement and drags">Grid Scale <input type="number" id="gridStepInput" value="0.5" min="0.05" max="8" step="0.05" style="width:64px"></label>
-    </div>
-    <div class="tool-group toolbar-extra">
-      <button id="zoomOut" title="Zoom out">−</button>
-      <span id="zoomLabel" style="font-family:var(--mono); font-size:11px; color:var(--text-muted); min-width:56px; text-align:center;"></span>
-      <button id="zoomIn" title="Zoom in">+</button>
-    </div>
-    <div class="tool-group toolbar-extra" id="weightGroup">
-      <label>Weight <input type="number" id="defaultStrokeWidth" value="1.6" step="0.1" min="0.2" style="width:60px" title="Stroke width used for newly drawn shapes"></label>
-    </div>
-    <div class="tool-group toolbar-extra" id="smoothGroup">
-      <label>Smooth <input type="range" id="freehandSmoothing" min="0" max="100" value="50" step="1" style="width:70px" title="How much the Freehand tool smooths out jitter from a shaky hand - higher removes more of the raw wobble"><span id="freehandSmoothingLabel" style="font-family:var(--mono); font-size:10.5px; color:var(--text-muted); min-width:30px; display:inline-block; text-align:right;">50%</span></label>
-    </div>
-    <div class="tool-group toolbar-extra">
-      <label title="Icon's own coordinate grid size, in viewBox units - not the exported pixel size">Canvas <input type="number" id="vbW" value="24" min="4" max="512" style="width:48px"> × <input type="number" id="vbH" value="24" min="4" max="512" style="width:48px"></label>
-    </div>
-    <div class="tool-group" style="margin-left:auto;">
-      <button id="shortcutsHelpBtn" class="help-btn" title="Keyboard shortcuts &amp; tool tips">?</button>
-    </div>
-  </div>
-  <div class="floating-preview-resize" id="floatingToolbarResize" title="Drag to resize"><span></span><span></span><span></span></div>
 </div>
 
 <div id="floatingPreview" class="floating-preview hidden">
@@ -1161,6 +1162,28 @@
         '<p>Paste project JSON here (from "Copy as Text" on another device/browser) and load it - this replaces every icon currently in the editor.</p>' +
         '<textarea class="modal-textarea" placeholder="Paste project JSON here..." style="width:100%; height:220px; font-family:var(--mono); font-size:11px; white-space:pre;"></textarea>' +
         '<div class="btn-row"><button class="modal-cancel">Cancel</button><button class="modal-ok primary">Load</button></div></div>';
+      document.body.appendChild(overlay);
+      const ta = overlay.querySelector(".modal-textarea");
+      const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
+      overlay.querySelector(".modal-cancel").addEventListener("click", () => cleanup(null));
+      overlay.querySelector(".modal-ok").addEventListener("click", () => cleanup(ta.value));
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(null); });
+      setTimeout(() => ta.focus(), 0);
+    });
+  }
+  // Same shape as showTextImport, different job - pasting raw shape
+  // markup (rect/circle/ellipse/line/polygon/path) INTO the active
+  // icon rather than replacing the whole project. Was a permanent
+  // inline panel in the right sidebar before this round; now a File
+  // menu item, opened on demand.
+  function showSvgMarkupImport() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = '<div class="modal-box" style="max-width:520px;">' +
+        '<p>Paste rect/circle/ellipse/line/polygon/path markup here (e.g. from a previous draft) to load it into the active icon as editable shapes.</p>' +
+        '<textarea class="modal-textarea" placeholder="Paste SVG markup here..." style="width:100%; height:220px; font-family:var(--mono); font-size:11px; white-space:pre;"></textarea>' +
+        '<div class="btn-row"><button class="modal-cancel">Cancel</button><button class="modal-ok primary">Import</button></div></div>';
       document.body.appendChild(overlay);
       const ta = overlay.querySelector(".modal-textarea");
       const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
@@ -3924,91 +3947,17 @@
     host.innerHTML = '<svg viewBox="0 0 ' + vb.w + " " + vb.h + '" style="width:100%; height:100%; color:#6ee7ff;">' +
       shapesMarkupWithColor(shapes(), iconLayers(activeIcon()), null) + "</svg>";
   }
-  // Drawing toolbar - starts DOCKED (a plain bar at the top of the
-  // canvas), can be undocked into a floating/draggable/resizable panel
-  // instead, same pattern the preview panel already uses. The two
-  // "shells" (.toolbar-dock when docked, .floating-toolbar's body slot
-  // when undocked) share ONE actual content element
-  // (#floatingToolbarBody) moved back and forth via appendChild rather
-  // than duplicated - appendChild relocates a node in place, so every
-  // button's event listener (wired once, below/elsewhere) keeps
-  // working regardless of which shell currently holds it. The ◀
-  // sidebar-collapse arrow deliberately lives OUTSIDE this shared body
-  // entirely now, as its own small tab on the sidebar seam (see
-  // .sidebar-toggle-tab) - it stays put even when the rest of the
-  // toolbar floats off elsewhere, since hiding the icon list is a
-  // layout control, not a drawing tool.
-  // Dock state/position/size/collapsed are all session-only, same as
-  // the floating preview - resets on reload.
-  (function setUpFloatingToolbar() {
-    const win = document.getElementById("floatingToolbar");
-    const head = document.getElementById("floatingToolbarHead");
-    const body = document.getElementById("floatingToolbarBody");
-    const dock = document.getElementById("toolbarDock");
-    const resizeHandle = document.getElementById("floatingToolbarResize");
-    let docked = true;
-    function setDocked(next) {
-      docked = next;
-      const dockBtn = document.getElementById("toolbarDockToggle");
-      if (docked) {
-        dock.appendChild(body);
-        win.classList.add("hidden");
-        dockBtn.textContent = "⇱";
-        dockBtn.title = "Undock the toolbar so it can float, move, and be resized";
-      } else {
-        win.appendChild(body);
-        win.classList.remove("hidden");
-        dockBtn.textContent = "⇲";
-        dockBtn.title = "Dock the toolbar back to the top of the canvas";
-      }
-    }
-    document.getElementById("toolbarDockToggle").addEventListener("click", () => setDocked(!docked));
-    document.getElementById("toolbarCollapseBtn").addEventListener("click", () => {
-      const collapsed = win.classList.toggle("collapsed");
-      document.getElementById("toolbarCollapseBtn").textContent = collapsed ? "+" : "−";
-      document.getElementById("toolbarCollapseBtn").title = collapsed ? "Expand to show every tool option" : "Collapse to just the drawing tools";
-    });
-    head.addEventListener("pointerdown", (evt) => {
-      if (evt.target.closest(".floating-preview-close")) return;
-      const startX = evt.clientX, startY = evt.clientY;
-      const rect = win.getBoundingClientRect();
-      const startLeft = rect.left, startTop = rect.top;
-      head.setPointerCapture(evt.pointerId);
-      const onMove = (mv) => {
-        win.style.left = clamp(startLeft + (mv.clientX - startX), -rect.width + 60, window.innerWidth - 60) + "px";
-        win.style.top = clamp(startTop + (mv.clientY - startY), 0, window.innerHeight - 40) + "px";
-      };
-      const onUp = (up) => {
-        head.releasePointerCapture(up.pointerId);
-        head.removeEventListener("pointermove", onMove);
-        head.removeEventListener("pointerup", onUp);
-      };
-      head.addEventListener("pointermove", onMove);
-      head.addEventListener("pointerup", onUp);
-      evt.preventDefault();
-    });
-    resizeHandle.addEventListener("pointerdown", (evt) => {
-      const rect = win.getBoundingClientRect();
-      const startX = evt.clientX, startY = evt.clientY;
-      const startW = rect.width, startH = rect.height;
-      resizeHandle.classList.add("dragging");
-      resizeHandle.setPointerCapture(evt.pointerId);
-      const onMove = (mv) => {
-        win.style.width = clamp(startW + (mv.clientX - startX), 280, window.innerWidth * 0.9) + "px";
-        win.style.height = clamp(startH + (mv.clientY - startY), 120, window.innerHeight * 0.9) + "px";
-      };
-      const onUp = (up) => {
-        resizeHandle.releasePointerCapture(up.pointerId);
-        resizeHandle.classList.remove("dragging");
-        resizeHandle.removeEventListener("pointermove", onMove);
-        resizeHandle.removeEventListener("pointerup", onUp);
-      };
-      resizeHandle.addEventListener("pointermove", onMove);
-      resizeHandle.addEventListener("pointerup", onUp);
-      evt.preventDefault();
-    });
-    setDocked(true);
-  })();
+  // The toolbar's old undock-to-a-floating-window feature (this
+  // comment block used to describe it) is gone as of the Phase 2
+  // redesign - the drawing tools now live in a permanently fixed left
+  // rail (#toolbarDock) and everything else that used to share that
+  // one floating panel (Undo/Redo, Snap/Grid, Zoom, Weight, Smooth,
+  // Canvas size, Help) now lives in a permanently fixed #contextBar
+  // above the canvas. A single shared node that could float as one
+  // block doesn't make sense once it's deliberately split into two
+  // fixed, differently-shaped regions (a vertical rail vs. a
+  // horizontal bar) - so rather than force the old floating mechanism
+  // onto two pieces it was never built for, it's removed outright.
   (function setUpFloatingPreview() {
     const win = document.getElementById("floatingPreview");
     const head = document.getElementById("floatingPreviewHead");
@@ -4254,15 +4203,42 @@
     renderTrace();
   });
 
-  document.getElementById("importBtn").addEventListener("click", () => {
-    const ta = document.getElementById("importText");
-    const text = ta.value.trim();
-    if (!text) return;
-    const result = parseMarkupToShapes(text);
+  // File/Export dropdown menus - click a trigger to open (closes any
+  // other open menu first, so only one is ever open at once), click
+  // anywhere outside or press Escape to close, click any real action
+  // inside a dropdown (a button/label, not the dropdown's own
+  // background) to close it too - the action's own listener still
+  // fires independently, this only affects whether the menu stays open
+  // afterward.
+  function closeAllMenus() {
+    document.querySelectorAll(".menu.open").forEach((m) => m.classList.remove("open"));
+  }
+  document.querySelectorAll(".menu-trigger").forEach((trigger) => {
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = trigger.closest(".menu");
+      const wasOpen = menu.classList.contains("open");
+      closeAllMenus();
+      if (!wasOpen) menu.classList.add("open");
+    });
+  });
+  document.querySelectorAll(".menu-dropdown").forEach((dropdown) => {
+    dropdown.addEventListener("click", (e) => {
+      if (e.target.closest("button, label.menu-item-file")) closeAllMenus();
+    });
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".menu")) closeAllMenus(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllMenus(); });
+
+  document.getElementById("importSvgMenuBtn").addEventListener("click", async () => {
+    const text = await showSvgMarkupImport();
+    if (text === null) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const result = parseMarkupToShapes(trimmed);
     shapes().push(...result.shapes);
     selectedId = null;
     pushHistory(); saveProject(); render();
-    ta.value = "";
     if (result.skipped > 0) showAlert("Imported " + result.shapes.length + " shape(s), skipped " + result.skipped + " element(s) that weren't recognized.");
   });
 
