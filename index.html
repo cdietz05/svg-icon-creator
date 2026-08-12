@@ -1343,17 +1343,17 @@
   // at the fillet's own tip - that made the handle creep toward the
   // shape's real resize/anchor handles as a corner got more rounded).
   // Pushed noticeably farther out than a plain handle would sit (see the
-  // 0.7 edge fraction below, well past where the resize/anchor handles
+  // 0.85 edge fraction below, well past where the resize/anchor handles
   // themselves live right at the vertex) so it's not an easy accidental
-  // touch target next to them - bumped again after user testing still
-  // found it too close. Staying at a fixed distance also means
-  // only the fillet itself moves as the radius changes - this glyph
-  // never does.
+  // touch target next to them - bumped a third time, user testing still
+  // found it too close even after the last increase. Staying at a
+  // fixed distance also means only the fillet itself moves as the
+  // radius changes - this glyph never does.
   function cornerRadiusGlyphPos(anchors, i, closed) {
     const a = anchors[i];
     const bis = trueInteriorBisector(anchors, i, closed);
-    const desired = clamp(24 / zoom, 0.6, 5);
-    const dist = Math.min(desired, Math.max(0.25, bis.edgeMin * 0.7));
+    const desired = clamp(32 / zoom, 0.8, 6);
+    const dist = Math.min(desired, Math.max(0.3, bis.edgeMin * 0.85));
     // Always outside the shape's own fill (negate the true interior
     // bisector), regardless of convex or reflex.
     return { x: a.x - bis.x * dist, y: a.y - bis.y * dist, bis, dist };
@@ -1370,7 +1370,9 @@
   function cornerRadiusGlyphMarkup(g, i) {
     const bis = g.bis;
     const px = -bis.y, py = bis.x;
-    const half = clamp(4.5 / zoom, 0.14, g.dist * 0.7);
+    // Longer than before (was clamp(4.5/zoom, 0.14, dist*0.7)) - user
+    // testing found the little arc too short/narrow to read clearly.
+    const half = clamp(6.5 / zoom, 0.22, g.dist * 0.85);
     const p1x = g.x + px * half, p1y = g.y + py * half;
     const p2x = g.x - px * half, p2y = g.y - py * half;
     const bow = half * 0.9 * (bis.convex ? -1 : 1);
@@ -4502,7 +4504,6 @@
             const rectAnchors = rectCornerAnchors(s);
             rectAnchors.forEach((a, i) => {
               const gp = cornerRadiusGlyphPos(rectAnchors, i, true);
-              parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(gp.x) + '" y2="' + fmt(gp.y) + '" class="handle-guide"/>');
               parts.push(cornerRadiusGlyphMarkup(gp, i));
             });
           }
@@ -4531,7 +4532,6 @@
             // branch and pathD's per-corner cornerR() resolution.
             if (pathCornerEligible(s.anchors, i, s.closed)) {
               const gp = cornerRadiusGlyphPos(s.anchors, i, s.closed);
-              parts.push('<line x1="' + fmt(a.x) + '" y1="' + fmt(a.y) + '" x2="' + fmt(gp.x) + '" y2="' + fmt(gp.y) + '" class="handle-guide"/>');
               parts.push(cornerRadiusGlyphMarkup(gp, i));
             }
           });
