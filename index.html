@@ -481,7 +481,7 @@
   #artboard.pan-active { cursor: grab; }
   #artboard.pan-active, #artboard.pan-active * { touch-action: pan-x pan-y; }
 
-  #gridLayer, #shapesLayer { pointer-events: none; }
+  #canvasBgLayer, #traceLayer, #gridLayer, #shapesLayer { pointer-events: none; }
   #gridLayer line { stroke: var(--border); stroke-width: 0.05; }
   #gridLayer line.major { stroke-width: 0.08; opacity: 0.9; }
   #shapesLayer { color: var(--text); }
@@ -754,6 +754,7 @@
       </div>
       <div class="canvas-viewport" id="canvasViewport">
         <svg id="artboard" xmlns="http://www.w3.org/2000/svg">
+          <g id="canvasBgLayer"></g>
           <g id="traceLayer"></g>
           <g id="gridLayer"></g>
           <g id="shapesLayer"></g>
@@ -2627,21 +2628,28 @@
   // Touch equivalent of holding Shift for aspect-ratio lock: a second
   // finger landing WHILE a lockable single-finger drag (Rect/Ellipse
   // draw, a corner-handle resize on Select, or a Trace-image corner
-  // resize) is already in progress. Set/cleared entirely inside
-  // onPointerDown/onPointerUp's touch handling - see the lockableDrag()
-  // check there for exactly which drags qualify. Everywhere else, a
-  // second finger still means pinch-zoom/pan exactly like before this
-  // existed - this only intercepts the one specific combination.
-  let touchAspectLockHeld = false;
-  function aspectLockActive() { return shiftHeld || touchAspectLockHeld; }
+  // resize) is already in progress. Deliberately keyed by pointerId, not
+  // by activeTouchPointers.size===2 (an earlier version was) - the
+  // PRIMARY pointer driving that drag isn't necessarily touch at all
+  // (Apple Pencil is its own pointerType, "pen", and is never added to
+  // activeTouchPointers), so "wait for 2 touch pointers" never fired
+  // with Pencil in one hand and a finger from the other - this only
+  // needs "some other pointer is already mid-drag", regardless of what
+  // type it is. Set/cleared entirely inside onPointerDown/onPointerUp's
+  // touch handling - see the lockableDrag() check there for exactly
+  // which drags qualify. Everywhere else, a second finger still means
+  // pinch-zoom/pan exactly like before this existed.
+  let lockFingerPointerId = null;
+  function aspectLockActive() { return shiftHeld || lockFingerPointerId !== null; }
   const CORNER_HANDLE_NAMES = new Set(["nw", "ne", "sw", "se"]);
-  // Which real pointerId is actually driving the active drag - only
-  // matters once a second touch can be on-screen without hijacking into
-  // pinch (see touchAspectLockHeld above). Before that, onPointerMove
-  // never had to distinguish between fingers, since a 2nd one always
-  // meant "stop dragging, start pinching" instead. Set on every
-  // pointerdown that isn't itself the pinch-hijack path; read in
-  // onPointerMove to ignore movement from any OTHER simultaneous touch.
+  // Which real pointerId is actually driving the active drag (mouse,
+  // pen, or the first touch to start one) - needed once a second
+  // pointer can be on-screen without hijacking into pinch/lock (see
+  // lockFingerPointerId above). Before that, onPointerMove never had to
+  // distinguish between pointers, since a 2nd touch always meant "stop
+  // dragging, start pinching" instead. Set on every pointerdown that
+  // isn't itself the pinch-hijack/lock-finger path; read in
+  // onPointerMove to ignore movement from any OTHER simultaneous pointer.
   let primaryDragPointerId = null;
   let boolSet = []; // up to 2 shape ids picked via shift-click, for the boolean cut op
   let multiSelect = []; // shape ids picked in the Multi tool, for bulk stroke-width/delete
@@ -2827,23 +2835,36 @@
   function onPointerDown(evt) {
     if (evt.button !== 0) return;
     if (evt.pointerType === "touch") {
-      activeTouchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
-      if (activeTouchPointers.size === 2) {
-        // A second finger during one of these specific drags means
-        // "lock the aspect ratio" (touch equivalent of holding Shift -
-        // see aspectLockActive), not "switch to pinch-zoom/pan". The
-        // primary finger's own drag just keeps going untouched; only
-        // this flag changes. Every other 2-finger case below is
-        // unchanged from before this existed.
+      // A finger landing while some OTHER pointer - mouse, Apple Pencil
+      // ("pen"), or another touch - is already mid-way through one of
+      // these specific drags means "lock the aspect ratio" (touch
+      // equivalent of holding Shift - see aspectLockActive), not "switch
+      // to pinch-zoom/pan". Checked BEFORE this finger is added to
+      // activeTouchPointers/counted, since that map only ever tracks
+      // real touch pointers and a Pencil-driven drag would never reach
+      // size===2 that way. The primary pointer's own drag just keeps
+      // going untouched; only the lock flag changes.
+      if (primaryDragPointerId !== null && primaryDragPointerId !== evt.pointerId && lockFingerPointerId === null) {
         const lockableDrag =
           (traceDrag && traceDrag.mode === "resize") ||
           (dragMode === "draw" && draftShape && (draftShape.type === "rect" || draftShape.type === "ellipse")) ||
           (dragMode === "handle" && dragHandle && CORNER_HANDLE_NAMES.has(dragHandle));
         if (lockableDrag) {
-          touchAspectLockHeld = true;
+          lockFingerPointerId = evt.pointerId;
           evt.preventDefault();
           return;
         }
+      }
+      // A 3rd simultaneous pointer while already locked (e.g. Pencil
+      // plus two fingers) - ignore it outright rather than letting it
+      // fall through and hijack primaryDragPointerId away from whichever
+      // pointer is actually driving the drag.
+      if (lockFingerPointerId !== null && evt.pointerId !== lockFingerPointerId && evt.pointerId !== primaryDragPointerId) {
+        evt.preventDefault();
+        return;
+      }
+      activeTouchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+      if (activeTouchPointers.size === 2) {
         // A second finger landing mid-gesture otherwise means the intent
         // just shifted to navigating the view, not whatever the active
         // tool was about to do with the first finger alone - cancel that
@@ -3063,6 +3084,12 @@
     pinchState.lastMid = mid;
   }
   function onPointerMove(evt) {
+    // The "hold a finger to lock aspect ratio" finger (see
+    // lockFingerPointerId) - it's never added to activeTouchPointers at
+    // all (see onPointerDown), and never drives the drag itself, only
+    // the actual primary pointer's own moves do. Checked first since it
+    // applies whether the primary is touch, pen, or mouse.
+    if (evt.pointerType === "touch" && evt.pointerId === lockFingerPointerId) return;
     if (evt.pointerType === "touch" && activeTouchPointers.has(evt.pointerId)) {
       activeTouchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
       if (pinchState && activeTouchPointers.size === 2) {
@@ -3073,11 +3100,6 @@
         }
         return;
       }
-      // The "hold a 2nd finger to lock aspect ratio" finger (see
-      // touchAspectLockHeld) - its position is tracked above (for when
-      // it eventually lifts) but it never drives the drag itself, only
-      // the actual primary finger's own moves do.
-      if (touchAspectLockHeld && evt.pointerId !== primaryDragPointerId) return;
     }
     if (dragMode === "pan") {
       // Raw screen pixels, 1:1 with the mouse - matches how the native
@@ -3272,14 +3294,20 @@
   }
 
   function onPointerUp(evt) {
-    if (evt && evt.pointerType === "touch" && activeTouchPointers.has(evt.pointerId)) {
-      // Lifting the "hold to lock aspect ratio" finger (not the one
+    if (evt && evt.pointerType === "touch" && evt.pointerId === lockFingerPointerId) {
+      // Lifting the "hold to lock aspect ratio" finger (not the pointer
       // actually dragging) just drops back to an unlocked drag - the
-      // primary finger is still down, so the drag itself isn't over.
-      const wasLockFinger = touchAspectLockHeld && evt.pointerId !== primaryDragPointerId;
+      // primary pointer (mouse/pen/touch) is still down, so the drag
+      // itself isn't over.
+      lockFingerPointerId = null;
+      return;
+    }
+    // Whatever's lifting now isn't the lock finger - if one is somehow
+    // still down (e.g. Pencil lifted before the lock finger did), the
+    // drag it was locking is ending anyway, so don't leave it dangling.
+    lockFingerPointerId = null;
+    if (evt && evt.pointerType === "touch" && activeTouchPointers.has(evt.pointerId)) {
       activeTouchPointers.delete(evt.pointerId);
-      if (activeTouchPointers.size < 2) touchAspectLockHeld = false;
-      if (wasLockFinger) return;
       if (pinchState) {
         // Lifting one finger of a pinch just ends the gesture outright,
         // rather than letting the remaining finger fall through into a
@@ -4878,8 +4906,14 @@
     // Marks the icon's own true bounds distinctly from the margin
     // workspace around it (see canvasClampBounds) - always drawn
     // regardless of the Grid toggle, since it's a boundary marker, not
-    // part of the grid itself.
-    let parts = ['<rect x="0" y="0" width="' + fmt(w) + '" height="' + fmt(h) + '" fill="var(--canvas-bg)" stroke="var(--border)" stroke-width="' + fmt(1 / zoom) + '"/>'];
+    // part of the grid itself. Lives in its own layer, BEFORE traceLayer
+    // (see #artboard's child order) - it used to be gridLayer's own
+    // first element, which opaquely painted over the trace image sitting
+    // behind that whole layer instead of just behind the grid LINES like
+    // it's supposed to be.
+    document.getElementById("canvasBgLayer").innerHTML =
+      '<rect x="0" y="0" width="' + fmt(w) + '" height="' + fmt(h) + '" fill="var(--canvas-bg)" stroke="var(--border)" stroke-width="' + fmt(1 / zoom) + '"/>';
+    let parts = [];
     if (!showGrid) { g.innerHTML = parts.join(""); return; }
     if (gridMode === "isometric") {
       // All three axes of the lattice (90/30/150 degrees) share the same
