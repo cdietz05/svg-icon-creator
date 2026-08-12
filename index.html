@@ -1961,7 +1961,18 @@
     let style = "outline";
     if (fill && fill !== "none" && (!stroke || stroke === "none")) style = "filled";
     else if (fill && fill !== "none" && stroke && stroke !== "none") style = "both";
-    return { style, strokeWidth: sw };
+    const result = { style, strokeWidth: sw };
+    // Real literal colors (2B) - round-trips a Standalone/PNG export's
+    // baked fill="#hex"/stroke="#hex" back into independent s.fill/
+    // s.stroke on reimport. Plain "currentColor"/"none" aren't real
+    // colors, so they're left unset (falls through to the usual
+    // layer/shade fallback chain instead of "fill: currentColor"
+    // literally becoming a shape's own override).
+    if (fill && fill !== "none" && fill !== "currentColor") result.fill = fill;
+    if (stroke && stroke !== "none" && stroke !== "currentColor") result.stroke = stroke;
+    const cap = node.getAttribute("stroke-linecap");
+    if (cap === "butt" || cap === "square") result.capStyle = cap;
+    return result;
   }
 
   function parseMarkupToShapes(text) {
@@ -2093,10 +2104,14 @@
           return { id: uid(), type: "ellipse", cx: (+node.getAttribute("cx") || 0) + off.tx, cy: (+node.getAttribute("cy") || 0) + off.ty,
             rx: +node.getAttribute("rx") || 0, ry: +node.getAttribute("ry") || 0, rotation: inferRotation(node), ...inferSkew(node), ...inferStyle(node) };
         } else if (tag === "line") {
-          return { id: uid(), type: "line", x1: +node.getAttribute("x1") || 0, y1: +node.getAttribute("y1") || 0,
+          const lineStroke = node.getAttribute("stroke");
+          const lineCap = node.getAttribute("stroke-linecap");
+          const line = { id: uid(), type: "line", x1: +node.getAttribute("x1") || 0, y1: +node.getAttribute("y1") || 0,
             x2: +node.getAttribute("x2") || 0, y2: +node.getAttribute("y2") || 0,
             style: "outline", strokeWidth: parseFloat(node.getAttribute("stroke-width")) || 1.6,
-            capStyle: node.getAttribute("stroke-linecap") === "butt" ? "flat" : "round" };
+            capStyle: (lineCap === "butt" || lineCap === "square") ? lineCap : "round" };
+          if (lineStroke && lineStroke !== "none" && lineStroke !== "currentColor") line.stroke = lineStroke;
+          return line;
         } else if (tag === "polygon" || tag === "polyline") {
           const raw = (node.getAttribute("points") || "").trim();
           if (!raw) return null;
@@ -2158,25 +2173,44 @@
   }
 
   // ---------- markup output ----------
-  function styleAttrsStr(s) {
-    if (s.style === "filled") return 'fill="currentColor" stroke="none"';
-    if (s.style === "both") return 'fill="currentColor" stroke="currentColor" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="round" stroke-linejoin="round"';
-    return 'fill="none" stroke="currentColor" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="round" stroke-linejoin="round"';
+  // Cap style is per-shape (s.capStyle), generalized this round beyond
+  // just the Line tool to any shape that actually paints a stroke -
+  // "flat" is the legacy stored value from before "square" existed,
+  // kept equivalent to SVG's "butt" so old data renders unchanged.
+  function capAttrValue(s) {
+    if (s.capStyle === "butt" || s.capStyle === "flat") return "butt";
+    if (s.capStyle === "square") return "square";
+    return "round";
   }
-  function shapeMarkup(s) {
+  // fillColor/strokeColor are OPTIONAL literal color values (e.g.
+  // "#2f5fd6") - omitted (as every pre-2B call site still does),
+  // they fall back to "currentColor" exactly like before this
+  // parameter existed, so icon export, hit-targets, and every other
+  // single-argument caller is byte-for-byte unaffected. Only callers
+  // that actually want a shape's REAL on-screen color baked in as a
+  // literal attribute (canvas render, Standalone/PNG/WebP export) pass
+  // real values - see shapeFillColor/shapeStrokeColor.
+  function styleAttrsStr(s, fillColor, strokeColor) {
+    const fillVal = fillColor || "currentColor";
+    const strokeVal = strokeColor || "currentColor";
+    if (s.style === "filled") return 'fill="' + fillVal + '" stroke="none"';
+    if (s.style === "both") return 'fill="' + fillVal + '" stroke="' + strokeVal + '" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="' + capAttrValue(s) + '" stroke-linejoin="round"';
+    return 'fill="none" stroke="' + strokeVal + '" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="' + capAttrValue(s) + '" stroke-linejoin="round"';
+  }
+  function shapeMarkup(s, fillColor, strokeColor) {
     if (s.type === "rect") {
       return '<rect x="' + fmt(s.x) + '" y="' + fmt(s.y) + '" width="' + fmt(s.w) + '" height="' + fmt(s.h) + '"' +
-        (s.rx ? ' rx="' + fmt(s.rx) + '"' : "") + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
+        (s.rx ? ' rx="' + fmt(s.rx) + '"' : "") + " " + styleAttrsStr(s, fillColor, strokeColor) + transformAttr(s) + "/>";
     }
     if (s.type === "ellipse") {
-      return '<ellipse cx="' + fmt(s.cx) + '" cy="' + fmt(s.cy) + '" rx="' + fmt(s.rx) + '" ry="' + fmt(s.ry) + '" ' + styleAttrsStr(s) + transformAttr(s) + "/>";
+      return '<ellipse cx="' + fmt(s.cx) + '" cy="' + fmt(s.cy) + '" rx="' + fmt(s.rx) + '" ry="' + fmt(s.ry) + '" ' + styleAttrsStr(s, fillColor, strokeColor) + transformAttr(s) + "/>";
     }
     if (s.type === "line") {
       return '<line x1="' + fmt(s.x1) + '" y1="' + fmt(s.y1) + '" x2="' + fmt(s.x2) + '" y2="' + fmt(s.y2) +
-        '" stroke="currentColor" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="' + (s.capStyle === "flat" ? "butt" : "round") + '"/>';
+        '" stroke="' + (strokeColor || "currentColor") + '" stroke-width="' + fmt(s.strokeWidth) + '" stroke-linecap="' + capAttrValue(s) + '"/>';
     }
     if (s.type === "path") {
-      return '<path d="' + pathD(s.anchors, s.closed, s.cornerRadius) + '" ' + styleAttrsStr(s) + transformAttr(s) + "/>";
+      return '<path d="' + pathD(s.anchors, s.closed, s.cornerRadius) + '" ' + styleAttrsStr(s, fillColor, strokeColor) + transformAttr(s) + "/>";
     }
     if (s.type === "compound") {
       // Merge's union output stays a plain nonzero-fill path - a
@@ -2184,7 +2218,7 @@
       // multi-part merge look seamless instead of hole-punched), and
       // nonzero already resolves that correctly with no further help.
       if (s.op === "union") {
-        return '<path d="' + s.d + '" fill-rule="nonzero"' + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
+        return '<path d="' + s.d + '" fill-rule="nonzero"' + " " + styleAttrsStr(s, fillColor, strokeColor) + transformAttr(s) + "/>";
       }
       // Cut's output punches frontD's hole out of clipD (the back
       // shape's own outline) via an SVG <mask> rather than folding both
@@ -2213,7 +2247,7 @@
         const clipId = "clip-" + s.id + "-" + uid();
         const mask = '<mask id="' + maskId + '"><path d="' + s.clipD + '" fill="#fff" fill-rule="nonzero"/><path d="' + s.frontD + '" fill="#000" fill-rule="nonzero"/></mask>';
         const clip = '<clipPath id="' + clipId + '"><path d="' + s.clipD + '"/></clipPath>';
-        return mask + clip + '<path d="' + s.clipD + '" mask="url(#' + maskId + ')"' + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
+        return mask + clip + '<path d="' + s.clipD + '" mask="url(#' + maskId + ')"' + " " + styleAttrsStr(s, fillColor, strokeColor) + transformAttr(s) + "/>";
       }
       // Fallback for a Cut result saved before frontD existed (older
       // localStorage/imported projects) - same evenodd+clip-path
@@ -2222,7 +2256,7 @@
       const fallbackClipId = "clip-" + s.id + "-" + uid();
       const clip = s.clipD ? '<clipPath id="' + fallbackClipId + '"><path d="' + s.clipD + '"/></clipPath>' : "";
       const clipAttr = s.clipD ? ' clip-path="url(#' + fallbackClipId + ')"' : "";
-      return clip + '<path d="' + s.d + '" fill-rule="evenodd"' + clipAttr + " " + styleAttrsStr(s) + transformAttr(s) + "/>";
+      return clip + '<path d="' + s.d + '" fill-rule="evenodd"' + clipAttr + " " + styleAttrsStr(s, fillColor, strokeColor) + transformAttr(s) + "/>";
     }
     return "";
   }
@@ -4719,7 +4753,8 @@
   // glance, stacked or not. Never touches shapeMarkup/shapesMarkup
   // itself, so icon export ("This icon"/"All icons") still renders true
   // currentColor - only Standalone/PNG/WebP export and the canvas/
-  // preview honor a real per-shape/per-layer color (see shapeDisplayColor).
+  // preview honor real per-shape/per-layer fill/stroke colors (see
+  // shapeFillColor/shapeStrokeColor).
   const SHADE_PALETTE = ["#ffffff", "#dbe4ff", "#ffe1e1", "#dcffe4", "#fff3d1", "#e6d9ff", "#d1f5ff", "#ffe0f0"];
   // A shape's own color override wins over its layer's, which wins over
   // nothing (null - stays pure currentColor, the icon-export default).
@@ -4728,8 +4763,19 @@
   // like once colored - only their FALLBACK when nothing is set differs
   // (editor shade tint vs. inherited currentColor vs. a guaranteed
   // solid default for a truly standalone file).
-  function shapeDisplayColor(s, layer) {
-    return s.color || (layer && layer.color) || null;
+  // Independent fill/stroke resolution (2B) - s.color is the OLD
+  // single-color field (kept read-only, never written by new code) so
+  // any existing project/import that only ever set it keeps rendering
+  // exactly as before with zero migration. Stroke falls back to the
+  // shape's own resolved FILL first (a shape with just a Fill color
+  // set still looks like today's single-color shapes until the user
+  // explicitly picks a different Stroke color), then the same
+  // color/layer chain fill uses.
+  function shapeFillColor(s, layer) {
+    return s.fill || s.color || (layer && layer.color) || null;
+  }
+  function shapeStrokeColor(s, layer) {
+    return s.stroke || s.fill || s.color || (layer && layer.color) || null;
   }
   // A layer's own opacity (0-1, default 1/fully opaque) - applies
   // everywhere the layer renders (canvas, preview, every export mode),
@@ -4751,8 +4797,19 @@
       const layerShapes = arr.filter((s) => (s.layer || layers[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
       const inner = normal.map((s) => {
-        const color = shapeDisplayColor(s, layer) || SHADE_PALETTE[shadeIdx++ % SHADE_PALETTE.length];
-        return '<g style="color:' + color + '">' + shapeMarkup(s) + "</g>";
+        // Independent fill/stroke (2B) - baked directly as literal
+        // attribute values now (see styleAttrsStr/shapeMarkup's new
+        // color params) instead of a single wrapping <g style="color">,
+        // since that wrapper could only ever carry ONE color for both
+        // channels. Both channels share the SAME rotating shade only
+        // when NEITHER has a real color of its own - matches the old
+        // single-shade-per-shape look for uncustomized shapes, and only
+        // advances shadeIdx when a fallback is actually needed, same as
+        // the old code did via short-circuit evaluation.
+        const fillReal = shapeFillColor(s, layer);
+        const strokeReal = shapeStrokeColor(s, layer);
+        const shade = (fillReal && strokeReal) ? null : SHADE_PALETTE[shadeIdx++ % SHADE_PALETTE.length];
+        return shapeMarkup(s, fillReal || shade, strokeReal || shade);
       }).join("\n  ");
       return layerOpacityWrap(applyKnockoutMask(inner, layerShapes), layer);
     }).join("\n  ");
@@ -5087,10 +5144,6 @@
         propLayers.map((l) => '<option value="' + l.id + '"' + ((s.layer || propLayers[0].id) === l.id ? " selected" : "") + ">" + l.name + "</option>").join("") +
         "</select></div>";
     }
-    html += '<div class="prop-row"><label title="Overrides currentColor for THIS shape - shows live in the canvas/preview and carries into Standalone/PNG/WebP export. Icon export (This icon/All icons) always stays currentColor regardless, so the icon is still themable by whatever app embeds it.">Custom color</label><input id="propColorToggle" type="checkbox"' + (s.color ? " checked" : "") + "></div>";
-    if (s.color) {
-      html += '<div class="prop-row"><label></label><input id="propColor" type="color" value="' + s.color + '"></div>';
-    }
     if (s.type !== "line") {
       html += '<div class="prop-row"><label>Style</label><select id="propStyle">' +
         '<option value="outline"' + (s.style === "outline" ? " selected" : "") + ">Outline</option>" +
@@ -5098,11 +5151,39 @@
         '<option value="both"' + (s.style === "both" ? " selected" : "") + ">Filled + outline</option>" +
         "</select></div>";
     }
+    // Independent fill/stroke (2B) - shown only for the channel(s) the
+    // shape actually paints (see styleAttrsStr), so a plain outline
+    // shape only ever sees a Stroke row, matching Boxy's own separate
+    // fill/stroke selectors instead of one "Custom color" for both.
+    // Effective value/checked-state resolves through the legacy
+    // s.color fallback (shapeFillColor/shapeStrokeColor) so an older
+    // project's shapes show their real current color here too, not a
+    // blank/unchecked control the first time this panel opens for them.
+    const showFill = s.type !== "line" && (s.style === "filled" || s.style === "both");
+    const showStroke = s.type === "line" || s.style === "outline" || s.style === "both";
+    if (showFill) {
+      const effFill = shapeFillColor(s, null);
+      html += '<div class="prop-row"><label title="Overrides currentColor for THIS shape\'s fill - shows live in the canvas/preview and carries into Standalone/PNG/WebP export. Icon export (This icon/All icons) always stays currentColor regardless, so the icon is still themable by whatever app embeds it.">Fill color</label><input id="propFillToggle" type="checkbox"' + (effFill ? " checked" : "") + "></div>";
+      if (effFill) {
+        html += '<div class="prop-row"><label></label><input id="propFillColor" type="color" value="' + effFill + '"></div>';
+      }
+    }
+    if (showStroke) {
+      const effStroke = shapeStrokeColor(s, null);
+      html += '<div class="prop-row"><label title="Overrides currentColor for THIS shape\'s stroke, independent of its fill.">Stroke color</label><input id="propStrokeToggle" type="checkbox"' + (effStroke ? " checked" : "") + "></div>";
+      if (effStroke) {
+        html += '<div class="prop-row"><label></label><input id="propStrokeColor" type="color" value="' + effStroke + '"></div>';
+      }
+    }
     if (s.type === "line" || s.style !== "filled") {
       html += '<div class="prop-row"><label>Stroke width</label><input id="propStrokeWidth" type="number" step="0.1" min="0.2" value="' + s.strokeWidth + '"></div>';
     }
-    if (s.type === "line") {
-      html += '<div class="prop-row"><label title="Round (default) or flat/square-cut ends where the line stops - purely the end caps, not a shape change.">Flat ends</label><input id="propFlatCap" type="checkbox"' + (s.capStyle === "flat" ? " checked" : "") + "></div>";
+    if (showStroke) {
+      const capNow = capAttrValue(s);
+      html += '<div class="prop-row"><label title="Round (default), flat/butt-cut, or squared-off ends where the stroke stops - purely the end cap, not a shape change.">Cap</label></div><div class="btn-row" style="gap:4px;">' +
+        ["round", "butt", "square"].map((v) =>
+          '<button type="button" class="tool-btn cap-btn' + (capNow === v ? " active" : "") + '" data-cap="' + v + '" title="' + v[0].toUpperCase() + v.slice(1) + ' cap"><svg viewBox="0 0 20 20"><line x1="5" y1="4" x2="5" y2="16" stroke="currentColor" stroke-width="1"/><line x1="15" y1="4" x2="15" y2="16" stroke="currentColor" stroke-width="1"/><line x1="5" y1="10" x2="15" y2="10" stroke="currentColor" stroke-width="5" stroke-linecap="' + v + '"/></svg></button>'
+        ).join("") + "</div>";
     }
     if (s.type === "rect") {
       html += '<div class="prop-row"><label>Corner radius</label><input id="propRx" type="number" step="0.1" min="0" value="' + (s.rx || 0) + '"></div>';
@@ -5141,32 +5222,68 @@
     }
     panel.innerHTML = html;
 
-    const colorToggle = document.getElementById("propColorToggle");
-    if (colorToggle) {
-      colorToggle.addEventListener("change", () => {
-        if (colorToggle.checked) s.color = s.color || "#000000";
-        else delete s.color;
+    // First real edit to either channel on a shape still carrying the
+    // OLD single s.color field "promotes" it into both new fields, then
+    // drops it - so no shape ever ends up with both an explicit s.fill/
+    // s.stroke AND a stale s.color that could ambiguously leak through
+    // shapeFillColor/shapeStrokeColor's fallback chain afterward.
+    function promoteLegacyColor() {
+      if (s.color != null) {
+        if (s.fill == null) s.fill = s.color;
+        if (s.stroke == null) s.stroke = s.color;
+        delete s.color;
+      }
+    }
+    const fillToggle = document.getElementById("propFillToggle");
+    if (fillToggle) {
+      fillToggle.addEventListener("change", () => {
+        promoteLegacyColor();
+        if (fillToggle.checked) { if (s.fill == null) s.fill = "#000000"; }
+        else delete s.fill;
         pushHistory(); saveProject(); render();
       });
     }
-    const colorInput = document.getElementById("propColor");
-    if (colorInput) {
+    const fillColorInput = document.getElementById("propFillColor");
+    if (fillColorInput) {
       // "input" (not "change") for live feedback while dragging the
       // color wheel - same reasoning as propCornerRadius above, only
       // touches the canvas/preview/export text, never a full render(),
       // so it can't steal focus back out of this very picker.
-      colorInput.addEventListener("input", () => {
-        s.color = colorInput.value;
+      fillColorInput.addEventListener("input", () => {
+        promoteLegacyColor();
+        s.fill = fillColorInput.value;
         renderShapesLayer(); renderPreview(); renderExport();
       });
-      colorInput.addEventListener("change", () => { pushHistory(); saveProject(); });
+      fillColorInput.addEventListener("change", () => { pushHistory(); saveProject(); });
+    }
+    const strokeToggle = document.getElementById("propStrokeToggle");
+    if (strokeToggle) {
+      strokeToggle.addEventListener("change", () => {
+        promoteLegacyColor();
+        if (strokeToggle.checked) { if (s.stroke == null) s.stroke = s.fill || "#000000"; }
+        else delete s.stroke;
+        pushHistory(); saveProject(); render();
+      });
+    }
+    const strokeColorInput = document.getElementById("propStrokeColor");
+    if (strokeColorInput) {
+      strokeColorInput.addEventListener("input", () => {
+        promoteLegacyColor();
+        s.stroke = strokeColorInput.value;
+        renderShapesLayer(); renderPreview(); renderExport();
+      });
+      strokeColorInput.addEventListener("change", () => { pushHistory(); saveProject(); });
     }
     const sw = document.getElementById("propStrokeWidth");
     if (sw) sw.addEventListener("change", () => { s.strokeWidth = Math.max(0.2, +sw.value || 1.6); pushHistory(); saveProject(); render(); });
     const styleSel = document.getElementById("propStyle");
     if (styleSel) styleSel.addEventListener("change", () => { s.style = styleSel.value; pushHistory(); saveProject(); render(); });
-    const flatCap = document.getElementById("propFlatCap");
-    if (flatCap) flatCap.addEventListener("change", () => { s.capStyle = flatCap.checked ? "flat" : "round"; pushHistory(); saveProject(); render(); });
+    document.querySelectorAll(".cap-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        s.capStyle = btn.dataset.cap;
+        pushHistory(); saveProject(); render();
+      });
+    });
     const rx = document.getElementById("propRx");
     if (rx) rx.addEventListener("change", () => { s.rx = Math.max(0, +rx.value || 0); pushHistory(); saveProject(); render(); });
     const freeTransformBtn = document.getElementById("propFreeTransform");
@@ -5406,14 +5523,15 @@
     });
     return new XMLSerializer().serializeToString(root).replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, "");
   }
-  // Bakes an explicit color into fill/stroke in place of currentColor -
-  // a shape's own color wins over its layer's (see shapeDisplayColor),
-  // falling back to fallbackColor when NEITHER is set. Each shape (not
-  // just each layer) gets its own <g style="color:X">, the exact same
-  // "set color on an ancestor, let currentColor cascade down" mechanism
-  // renderShapesLayer's own canvas shading already relies on - resolved
-  // entirely within the SVG's own document tree, so it works identically
-  // in an <img src>, a rasterized canvas, or any standalone SVG viewer
+  // Bakes explicit, INDEPENDENT fill/stroke colors in place of
+  // currentColor (2B) - each shape's own fill/stroke wins over its
+  // layer's (see shapeFillColor/shapeStrokeColor), falling back to
+  // fallbackColor when neither channel has a real color of its own.
+  // Literal attribute values now, not a wrapping <g style="color:X"> -
+  // that single-color-per-ancestor trick can't represent two DIFFERENT
+  // channel colors, only ever one. Still resolved entirely within the
+  // SVG's own document tree either way, so it works identically in an
+  // <img src>, a rasterized canvas, or any standalone SVG viewer
   // opening the file directly, with nothing external required.
   function shapesMarkupWithColor(arr, layers, fallbackColor) {
     const groups = layers && layers.length ? layers : [{ id: "__all__" }];
@@ -5422,8 +5540,9 @@
       const layerShapes = arr.filter((s) => (s.layer || groups[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
       const inner = normal.map((s) => {
-        const color = shapeDisplayColor(s, layer) || fallbackColor;
-        return color ? '<g style="color:' + color + '">' + shapeMarkup(s) + "</g>" : shapeMarkup(s);
+        const fill = shapeFillColor(s, layer) || fallbackColor;
+        const stroke = shapeStrokeColor(s, layer) || fallbackColor;
+        return shapeMarkup(s, fill, stroke);
       }).join("\n  ");
       return layerOpacityWrap(applyKnockoutMask(inner, layerShapes), layer);
     }).join("\n  ");
@@ -5472,8 +5591,8 @@
   // shown only in Standalone mode) - removed now that a shape's own
   // Custom color (Properties panel, visible regardless of export mode)
   // covers this with more control. layer.color still exists as a
-  // fallback in shapeDisplayColor for shapes with no override of their
-  // own, just nothing in the UI sets it anymore.
+  // fallback in shapeFillColor/shapeStrokeColor for shapes with no
+  // override of their own, just nothing in the UI sets it anymore.
   function renderExport() {
     // Cheap/raw wrap (not optimizeExportMarkup - this runs every
     // render(), every drag frame) so the visible textarea is always a
