@@ -800,10 +800,6 @@
           <label><input type="radio" name="exportMode" value="standalone" title="Bakes an explicit color into fill/stroke instead of currentColor, and skips nothing else this tool relies on being modern - viewable standalone in an <img> tag, an old browser, or any SVG viewer, not just inlined in a page that can supply currentColor via CSS."> Standalone</label>
         </div>
         <p class="muted" style="font-size:10.5px;"><b>This icon</b>/<b>All icons</b> always export single-color (plain <code>currentColor</code>) - the app embedding it themes it via CSS. <b>Standalone</b> (and the .png/.webp export below it) bakes in each shape's own Custom color (set on the shape itself, in Properties) - so those keep every color you see on screen.</p>
-        <div class="prop-row">
-          <label>File name</label>
-          <input type="text" id="exportFilenameInput" placeholder="icon">
-        </div>
         <div class="prop-row" id="standaloneSizeRow" style="display:none">
           <label>Export size</label>
           <input type="number" id="standaloneSize" min="16" max="4096" step="1" value="1024"> px
@@ -4267,27 +4263,35 @@
   let standaloneExportPx = 1024;
   // User-editable override for the downloaded file's base name (no
   // extension - each export path appends its own). Blank means "use the
-  // auto-derived name" (icon key, or the pack/standalone-suffixed
-  // variants) exactly like before this existed. Once a custom name is
-  // typed it's used VERBATIM (no icon-key prefix, no "-standalone"
-  // suffix added on top) - the whole point is the user gets to say
-  // exactly what the file is called.
-  function customFilenameBase() {
-    const input = document.getElementById("exportFilenameInput");
-    if (!input) return "";
-    // Strip a trailing extension the user typed themselves (e.g. pasting
-    // "logo.svg" back in) - every call site appends its own real one
-    // right after this, so keeping theirs too would double it up into
-    // "logo.svg.svg".
-    return input.value.trim().replace(/[\\/:*?"<>|]/g, "").replace(/\.(svg|png|webp|json)$/i, "").trim();
+  // Asks (via a real popup, showPrompt) right when a download button is
+  // actually clicked, instead of a persistent field sitting in the
+  // panel the whole time - what the user asked for after trying the
+  // field version. Blank/whitespace-only or Cancel both fall back to
+  // the auto-derived default; typing a real name uses it VERBATIM (no
+  // icon-key prefix, no "-standalone" suffix added on top).
+  function sanitizeFilenameBase(v) {
+    // Strip forbidden filename chars and any extension the user typed
+    // themselves (e.g. pasting "logo.svg" back in) - every call site
+    // appends its own real one right after this, so keeping theirs too
+    // would double it up into "logo.svg.svg".
+    return (v || "").trim().replace(/[\\/:*?"<>|]/g, "").replace(/\.(svg|png|webp|json)$/i, "").trim();
   }
   function defaultFilenameBase(mode) {
     if (mode === "all") return "svg-icon-pack";
     return project.activeKey + (mode === "standalone" ? "-standalone" : "");
   }
-  function wrapSvgDocument(text, mode) {
+  // Returns null if the user cancelled the prompt (caller should abort
+  // the download entirely), otherwise a sanitized base name - the
+  // default if they left it blank/unchanged and just hit OK/Enter.
+  async function promptFilenameBase(mode) {
+    const def = defaultFilenameBase(mode);
+    const typed = await showPrompt("File name for this download:", def);
+    if (typed === null) return null;
+    return sanitizeFilenameBase(typed) || def;
+  }
+  function wrapSvgDocument(text, mode, filenameBase) {
     const xmlHeader = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    const base = customFilenameBase() || defaultFilenameBase(mode);
+    const base = filenameBase || defaultFilenameBase(mode);
     if (mode === "all") {
       return { full: xmlHeader + '<svg xmlns="' + SVGNS + '" width="0" height="0" style="position:absolute">\n' + text + "\n</svg>", filename: base + ".svg" };
     }
@@ -4305,12 +4309,16 @@
   // The optimized, fully-wrapped document - what Copy/Download/Share all
   // actually hand off, and also what the visible textarea gets set to
   // right after any of them run, so what's on screen always matches
-  // exactly what was copied/downloaded/shared.
-  function buildFullSvg() {
-    return wrapSvgDocument(optimizedExportMarkup(), currentExportMode());
+  // exactly what was copied/downloaded/shared. filenameBase is optional
+  // - omitted for the cheap per-render preview (renderExport), which
+  // has no business prompting on every keystroke/drag frame.
+  function buildFullSvg(filenameBase) {
+    return wrapSvgDocument(optimizedExportMarkup(), currentExportMode(), filenameBase);
   }
-  document.getElementById("downloadBtn").addEventListener("click", () => {
-    const { full, filename } = buildFullSvg();
+  document.getElementById("downloadBtn").addEventListener("click", async () => {
+    const filenameBase = await promptFilenameBase(currentExportMode());
+    if (filenameBase === null) return;
+    const { full, filename } = buildFullSvg(filenameBase);
     document.getElementById("exportText").value = full;
     const blob = new Blob([full], { type: "image/svg+xml" });
     const a = document.createElement("a");
@@ -4329,7 +4337,9 @@
   // transparent and nothing here fills a background, so any area the
   // icon doesn't actually draw over stays transparent in the output -
   // exactly the "keep transparency where applicable" ask.
-  function rasterizeStandaloneExport(mimeType, ext) {
+  async function rasterizeStandaloneExport(mimeType, ext) {
+    const filenameBase = await promptFilenameBase("standalone");
+    if (filenameBase === null) return;
     const { full } = wrapSvgDocument(optimizedExportMarkup(), "standalone");
     const vb = project.viewBox;
     const w = standaloneExportPx, h = Math.round((standaloneExportPx * vb.h) / vb.w);
@@ -4356,7 +4366,7 @@
         // Naming it from blob.type instead means the filename always
         // matches what's actually inside it.
         const actualExt = blob.type === "image/webp" ? "webp" : blob.type === "image/png" ? "png" : ext;
-        const filename = (customFilenameBase() || (project.activeKey + "-standalone")) + "." + actualExt;
+        const filename = filenameBase + "." + actualExt;
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = filename;
@@ -5433,7 +5443,6 @@
     // real, complete, pasteable SVG document - not just the inner
     // fragment - even before Copy/Download ever run once.
     document.getElementById("exportText").value = wrapSvgDocument(rawExportMarkup(), currentExportMode()).full;
-    document.getElementById("exportFilenameInput").placeholder = defaultFilenameBase(currentExportMode());
   }
 
   // Everything that's actually affected by pan/zoom: the SVG's own
