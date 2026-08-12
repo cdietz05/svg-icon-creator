@@ -1377,12 +1377,20 @@
     const p2x = g.x - px * half, p2y = g.y - py * half;
     const bow = half * 0.9 * (bis.convex ? -1 : 1);
     const ctrlx = g.x + bis.x * bow, ctrly = g.y + bis.y * bow;
-    // Standard handleHitR (not the earlier 1.3x) - the glyph now sits
-    // well clear of the corner (see cornerRadiusGlyphPos's 0.7 edge
-    // fraction), so an oversized hit box isn't needed to make it easy
-    // to grab, and was overlapping the real anchor/resize handles at
-    // the vertex right next to it.
-    return '<circle cx="' + fmt(g.x) + '" cy="' + fmt(g.y) + '" r="' + fmt(handleHitR()) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
+    // Asymmetric hit circle, not centered on the glyph - tighter on the
+    // side facing the shape/corner (real anchor/resize handles live
+    // right there, so that side stays small to avoid overlapping them)
+    // and more generous on the far side (open margin space, nothing to
+    // bump into, so it can be a bigger and easier target there). bis
+    // still points from the corner INTO the shape, so +bis is "toward
+    // the shape" and -bis is "away" relative to the glyph's own
+    // position - shifting the hit circle's center toward -bis by half
+    // the size difference, with a radius averaging the two, produces
+    // exactly nearR at the near edge and farR at the far edge.
+    const nearR = handleHitR() * 0.55, farR = handleHitR() * 1.7;
+    const hitR = (nearR + farR) / 2, hitOffset = (farR - nearR) / 2;
+    const hitCx = g.x - bis.x * hitOffset, hitCy = g.y - bis.y * hitOffset;
+    return '<circle cx="' + fmt(hitCx) + '" cy="' + fmt(hitCy) + '" r="' + fmt(hitR) + '" class="handle-hit" data-handle="radius-' + i + '"/>' +
       '<path d="M ' + fmt(p1x) + ' ' + fmt(p1y) + ' Q ' + fmt(ctrlx) + ' ' + fmt(ctrly) + ' ' + fmt(p2x) + ' ' + fmt(p2y) + '" class="handle-radius"/>';
   }
 
@@ -4422,14 +4430,19 @@
     const layers = iconLayers(activeIcon());
     let shadeIdx = 0;
     const markup = layers.map((layer) => {
-      if (layer.hidden) return "";
       const layerShapes = arr.filter((s) => (s.layer || layers[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
       const inner = normal.map((s) => {
         const color = shapeDisplayColor(s, layer) || SHADE_PALETTE[shadeIdx++ % SHADE_PALETTE.length];
         return '<g style="color:' + color + '">' + shapeMarkup(s) + "</g>";
       }).join("\n  ");
-      return applyKnockoutMask(inner, layerShapes);
+      const masked = applyKnockoutMask(inner, layerShapes);
+      // Hidden on canvas means dimmed, not gone - still there to work
+      // with/reference while editing. Export (shapesMarkup/
+      // shapesMarkupWithColor) and the preview swatches still fully
+      // exclude a hidden layer, same as before - only this live canvas
+      // view softens instead of hides.
+      return layer.hidden ? '<g opacity="0.3">' + masked + "</g>" : masked;
     }).join("\n  ");
     document.getElementById("shapesLayer").innerHTML = markup;
   }
@@ -4440,17 +4453,11 @@
     // applyKnockoutMask/renderShapesLayer) - this dashed marker is the
     // only thing that makes them visible/findable at all, so it's
     // always on regardless of tool, not just while selected.
-    // A shape on a hidden layer is invisible on canvas (see
-    // renderShapesLayer) - it shouldn't still be clickable/draggable
-    // there either, even though it's still reachable via the layer
-    // list or Properties (e.g. to move it to a visible layer).
-    const uiLayers = iconLayers(activeIcon());
-    const isShapeVisible = (s) => {
-      const layer = uiLayers.find((l) => l.id === (s.layer || uiLayers[0].id));
-      return !layer || !layer.hidden;
-    };
-    shapes().forEach((s) => { if (s.knockout && isShapeVisible(s)) parts.push(shapeOutlineMarkup(s, "knockout-outline")); });
-    if (tool === "select" || tool === "multi" || tool === "cut") shapes().filter(isShapeVisible).forEach((s) => parts.push(hitTargetMarkup(s)));
+    // A hidden layer's shapes are dimmed on canvas, not gone (see
+    // renderShapesLayer) - since they're genuinely still visible there,
+    // they stay clickable/draggable too, same as any other shape.
+    shapes().forEach((s) => { if (s.knockout) parts.push(shapeOutlineMarkup(s, "knockout-outline")); });
+    if (tool === "select" || tool === "multi" || tool === "cut") shapes().forEach((s) => parts.push(hitTargetMarkup(s)));
     if (draftShape) parts.push(shapeMarkup(draftShape).replace(/\/>$/, ' class="draft-preview"/>'));
     if (freehandPoints && freehandPoints.length > 1) {
       const d = "M " + freehandPoints.map((fp) => fmt(fp.x) + " " + fmt(fp.y)).join(" L ");
@@ -4714,8 +4721,7 @@
     }
     if (s.type === "path") {
       html += '<div class="prop-row"><label>Closed shape</label><input id="propClosed" type="checkbox"' + (s.closed ? " checked" : "") + "></div>" +
-        '<div class="prop-row"><label title="Rounds any sharp corner (a plain click-placed point with no bezier handle of its own) into a smooth fillet. Types here apply to every corner, clearing any individually-set corner below.">Corner radius</label><input id="propCornerRadius" type="number" step="0.1" min="0" value="' + (s.cornerRadius || 0) + '"></div>' +
-        '<div class="btn-row"><button id="propSmooth" title="Re-runs the Smooth slider setting against this shape’s existing curve">Smooth</button></div>';
+        '<div class="prop-row"><label title="Rounds any sharp corner (a plain click-placed point with no bezier handle of its own) into a smooth fillet. Types here apply to every corner, clearing any individually-set corner below.">Corner radius</label><input id="propCornerRadius" type="number" step="0.1" min="0" value="' + (s.cornerRadius || 0) + '"></div>';
       const eligible = s.anchors.map((a, i) => i).filter((i) => pathCornerEligible(s.anchors, i, s.closed));
       if (eligible.length) {
         html += '<div class="prop-row" id="cornersToggleRow" style="cursor:pointer;"><label>Corners (' + eligible.length + ')</label><span>' + (cornersListExpanded ? "▾" : "▸") + "</span></div>";
@@ -4727,6 +4733,7 @@
           }).join("");
         }
       }
+      html += '<div class="btn-row"><button id="propSmooth" title="Re-runs the Smooth slider setting against this shape’s existing curve">Smooth</button></div>';
     }
     if (s.type !== "line") {
       html += '<div class="prop-row"><label>Rotation°</label><input id="propRotation" type="number" step="1" value="' + Math.round(s.rotation || 0) + '"></div>' +
