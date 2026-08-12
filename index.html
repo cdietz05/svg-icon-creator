@@ -373,6 +373,8 @@
   .icon-row-eye:hover { color: var(--accent); }
   .icon-row.layer-hidden .icon-row-eye { color: var(--text-muted); opacity: 0.5; }
   .icon-row.layer-hidden .icon-row-name, .icon-row.layer-hidden .icon-row-count { opacity: 0.5; }
+  .layer-opacity-row { padding: 0 8px 4px 8px; margin-top: -2px; }
+  .layer-opacity-slider { width: 100%; height: 14px; accent-color: var(--accent); cursor: pointer; }
   /* Layer rows (identified by data-layer, unlike the icon list's
      data-key rows) are pointer-drag-reorderable - see renderLayerList.
      touch-action:none stops a touch-drag from being read as scrolling
@@ -2195,7 +2197,7 @@
       if (layer.hidden) return "";
       const layerShapes = arr.filter((s) => (s.layer || groups[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
-      return applyKnockoutMask(normal.map(shapeMarkup).join("\n  "), layerShapes);
+      return layerOpacityWrap(applyKnockoutMask(normal.map(shapeMarkup).join("\n  "), layerShapes), layer);
     }).join("\n  ");
   }
 
@@ -4290,7 +4292,8 @@
         '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="up" title="Move layer up (toward the top of the stack)"' + (idx === layers.length - 1 ? " disabled" : "") + ">▲</button>" +
         '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="down" title="Move layer down (toward the bottom of the stack)"' + (idx === 0 ? " disabled" : "") + ">▼</button>" +
         (layers.length > 1 ? '<button class="icon-row-del" data-del-layer="' + layer.id + '" title="Delete layer">✕</button>' : "") +
-        "</div>";
+        "</div>" +
+        '<div class="layer-opacity-row"><input type="range" class="layer-opacity-slider" data-layer="' + layer.id + '" min="0" max="1" step="0.05" value="' + (layer.opacity != null ? layer.opacity : 1) + '" title="Layer opacity"></div>';
     });
     list.innerHTML = rows.join("");
     // Drag-to-reorder via plain pointer events, NOT native HTML5 drag-
@@ -4372,6 +4375,19 @@
         pushHistory(); saveProject(); render();
       });
     });
+    list.querySelectorAll(".layer-opacity-slider").forEach((slider) => {
+      // "input" for live feedback while dragging - only touches the
+      // canvas/preview/export text, never a full render(), same
+      // reasoning as propCornerRadius/propColor above (a full render()
+      // would rebuild this very slider's innerHTML mid-drag).
+      slider.addEventListener("input", () => {
+        const layer = layers.find((l) => l.id === slider.dataset.layer);
+        if (!layer) return;
+        layer.opacity = +slider.value;
+        renderShapesLayer(); renderPreview(); renderExport();
+      });
+      slider.addEventListener("change", () => { pushHistory(); saveProject(); });
+    });
     list.querySelectorAll(".icon-row-move").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -4425,24 +4441,30 @@
   function shapeDisplayColor(s, layer) {
     return s.color || (layer && layer.color) || null;
   }
+  // A layer's own opacity (0-1, default 1/fully opaque) - applies
+  // everywhere the layer renders (canvas, preview, every export mode),
+  // unlike a shape/layer's Custom color which icon export deliberately
+  // ignores to stay themable. Opacity doesn't defeat that - a
+  // half-opacity currentColor shape is still exactly as themable as a
+  // full-opacity one - so there's no reason to hold it back from icon
+  // export the way baked color is.
+  function layerOpacityWrap(markup, layer) {
+    const op = layer.opacity != null ? layer.opacity : 1;
+    return op < 1 ? '<g opacity="' + fmt(op) + '">' + markup + "</g>" : markup;
+  }
   function renderShapesLayer() {
     const arr = shapes();
     const layers = iconLayers(activeIcon());
     let shadeIdx = 0;
     const markup = layers.map((layer) => {
+      if (layer.hidden) return "";
       const layerShapes = arr.filter((s) => (s.layer || layers[0].id) === layer.id);
       const normal = layerShapes.filter((s) => !s.knockout);
       const inner = normal.map((s) => {
         const color = shapeDisplayColor(s, layer) || SHADE_PALETTE[shadeIdx++ % SHADE_PALETTE.length];
         return '<g style="color:' + color + '">' + shapeMarkup(s) + "</g>";
       }).join("\n  ");
-      const masked = applyKnockoutMask(inner, layerShapes);
-      // Hidden on canvas means dimmed, not gone - still there to work
-      // with/reference while editing. Export (shapesMarkup/
-      // shapesMarkupWithColor) and the preview swatches still fully
-      // exclude a hidden layer, same as before - only this live canvas
-      // view softens instead of hides.
-      return layer.hidden ? '<g opacity="0.3">' + masked + "</g>" : masked;
+      return layerOpacityWrap(applyKnockoutMask(inner, layerShapes), layer);
     }).join("\n  ");
     document.getElementById("shapesLayer").innerHTML = markup;
   }
@@ -4453,11 +4475,17 @@
     // applyKnockoutMask/renderShapesLayer) - this dashed marker is the
     // only thing that makes them visible/findable at all, so it's
     // always on regardless of tool, not just while selected.
-    // A hidden layer's shapes are dimmed on canvas, not gone (see
-    // renderShapesLayer) - since they're genuinely still visible there,
-    // they stay clickable/draggable too, same as any other shape.
-    shapes().forEach((s) => { if (s.knockout) parts.push(shapeOutlineMarkup(s, "knockout-outline")); });
-    if (tool === "select" || tool === "multi" || tool === "cut") shapes().forEach((s) => parts.push(hitTargetMarkup(s)));
+    // A shape on a hidden layer is invisible on canvas (see
+    // renderShapesLayer) - it shouldn't still be clickable/draggable
+    // there either, even though it's still reachable via the layer
+    // list or Properties (e.g. to move it to a visible layer).
+    const uiLayers = iconLayers(activeIcon());
+    const isShapeVisible = (s) => {
+      const layer = uiLayers.find((l) => l.id === (s.layer || uiLayers[0].id));
+      return !layer || !layer.hidden;
+    };
+    shapes().forEach((s) => { if (s.knockout && isShapeVisible(s)) parts.push(shapeOutlineMarkup(s, "knockout-outline")); });
+    if (tool === "select" || tool === "multi" || tool === "cut") shapes().filter(isShapeVisible).forEach((s) => parts.push(hitTargetMarkup(s)));
     if (draftShape) parts.push(shapeMarkup(draftShape).replace(/\/>$/, ' class="draft-preview"/>'));
     if (freehandPoints && freehandPoints.length > 1) {
       const d = "M " + freehandPoints.map((fp) => fmt(fp.x) + " " + fmt(fp.y)).join(" L ");
@@ -5032,7 +5060,7 @@
         const color = shapeDisplayColor(s, layer) || fallbackColor;
         return color ? '<g style="color:' + color + '">' + shapeMarkup(s) + "</g>" : shapeMarkup(s);
       }).join("\n  ");
-      return applyKnockoutMask(inner, layerShapes);
+      return layerOpacityWrap(applyKnockoutMask(inner, layerShapes), layer);
     }).join("\n  ");
   }
   // "Standalone"/PNG/WebP export - guarantees a real fallback color
