@@ -518,6 +518,7 @@
   .bool-outline-front { fill: none; stroke: var(--accent-2); stroke-width: 0.16; stroke-dasharray: 0.3 0.35; pointer-events: none; }
   .multi-outline { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-width: 0.14; stroke-dasharray: 0.5 0.35; pointer-events: none; }
   .marquee-rect { fill: var(--accent); fill-opacity: 0.1; stroke: var(--accent); stroke-width: 0.1; stroke-dasharray: 0.4 0.3; pointer-events: none; }
+  .trace-bounds { fill: transparent; stroke: var(--accent-2); stroke-width: 0.15; stroke-dasharray: 0.5 0.35; cursor: move; }
   .align-guide { stroke: var(--accent); stroke-width: 0.12; stroke-dasharray: 0.5 0.4; pointer-events: none; }
   .pen-preview { fill: none; stroke: var(--accent-2); stroke-width: 0.12; stroke-dasharray: 0.6 0.5; }
   .pen-anchor { fill: var(--accent); pointer-events: none; }
@@ -712,6 +713,20 @@
           <button id="addLayerBtn">+ Add Layer</button>
         </div>
       </div>
+      <div class="stack" style="border-top:1px solid var(--border)">
+        <div class="panel-head" style="padding-left:0" title="A reference image to trace over - renders behind the grid, never saved, never exported. Select the Trace tool to move/resize it.">Trace Image</div>
+        <div class="btn-row">
+          <label class="btn-row" style="justify-content:center; cursor:pointer; border:1px solid var(--border); border-radius:6px; padding:5px 10px; font-size:12px; flex:1;">
+            Upload
+            <input type="file" id="traceImageInput" accept="image/*" hidden>
+          </label>
+          <button id="traceRemoveBtn" title="Remove the trace image" disabled>Remove</button>
+        </div>
+        <div class="prop-row" id="traceOpacityRow" style="display:none">
+          <label>Opacity</label>
+          <input type="range" id="traceOpacitySlider" min="0.05" max="1" step="0.05" value="0.4">
+        </div>
+      </div>
       <div class="stack" style="border-top:1px solid var(--border); margin-top:auto">
         <div class="panel-head" style="padding-left:0">Project</div>
         <div class="btn-row">
@@ -739,6 +754,7 @@
       </div>
       <div class="canvas-viewport" id="canvasViewport">
         <svg id="artboard" xmlns="http://www.w3.org/2000/svg">
+          <g id="traceLayer"></g>
           <g id="gridLayer"></g>
           <g id="shapesLayer"></g>
           <g id="uiLayer"></g>
@@ -783,6 +799,10 @@
           <label><input type="radio" name="exportMode" value="standalone" title="Bakes an explicit color into fill/stroke instead of currentColor, and skips nothing else this tool relies on being modern - viewable standalone in an <img> tag, an old browser, or any SVG viewer, not just inlined in a page that can supply currentColor via CSS."> Standalone</label>
         </div>
         <p class="muted" style="font-size:10.5px;"><b>This icon</b>/<b>All icons</b> always export single-color (plain <code>currentColor</code>) - the app embedding it themes it via CSS. <b>Standalone</b> (and the .png/.webp export below it) bakes in each shape's own Custom color (set on the shape itself, in Properties) - so those keep every color you see on screen.</p>
+        <div class="prop-row">
+          <label>File name</label>
+          <input type="text" id="exportFilenameInput" placeholder="icon">
+        </div>
         <div class="prop-row" id="standaloneSizeRow" style="display:none">
           <label>Export size</label>
           <input type="number" id="standaloneSize" min="16" max="4096" step="1" value="1024"> px
@@ -830,6 +850,7 @@
       <button class="tool-btn" data-tool="freehand" title="Freehand — draw naturally, it's simplified and smoothed into a curve on release (F)">Freehand</button>
       <button class="tool-btn" data-tool="cut" title="Cut a hole — tap 2 shapes; the 2nd cuts a hole in the 1st (H)">Cut</button>
       <button class="tool-btn" data-tool="pan" title="Pan — drag (finger or Pencil) to scroll around when zoomed in (P)">Pan</button>
+      <button class="tool-btn" data-tool="trace" title="Trace Image — drag inside it to move, drag a corner to resize (Shift keeps its aspect ratio) (T)">Trace</button>
     </div>
     <div class="tool-group toolbar-extra">
       <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
@@ -880,7 +901,13 @@
 (function () {
   "use strict";
   const SVGNS = "http://www.w3.org/2000/svg";
-  const STORAGE_KEY = "cinder-icon-editor-project-v1";
+  const STORAGE_KEY = "svg-icon-creator-project-v1";
+  // Old name from before this tool split off into its own general-purpose
+  // project - still read as a one-time fallback so nobody's in-progress
+  // work vanishes just because the key got renamed; saveProject only ever
+  // writes the new key, so a browser naturally migrates off this the
+  // first time it saves.
+  const LEGACY_STORAGE_KEY = "cinder-icon-editor-project-v1";
 
   // Light/dark toggle - explicit choice persists (survives OS theme
   // changes too, unlike the CSS-only prefers-color-scheme fallback);
@@ -918,75 +945,18 @@
   }
   syncThemeToggleIcon();
 
-  // No longer used by createDefaultProject (see DEFAULT_ICON_SEED below)
-  // - kept in place, not deleted, since it's real hand-drawn work still
-  // meant for the actual Cinder app once its icon set is finalized, not
-  // dead code. A brand-new user of this now general-purpose tool
-  // shouldn't be handed someone else's in-progress equipment icons as
-  // their own starting point; this project's own author already has
-  // their in-progress version saved in their own browser's localStorage
-  // independent of this constant either way, so nothing here affects
-  // continuing that work.
-  const CINDER_EQUIPMENT_SEED = [
-    ["barbell", "Barbell"], ["dumbbell", "Dumbbell"], ["kettlebell", "Kettlebell"],
-    ["cable", "Cable"], ["machine", "Machine"], ["bodyweight", "Bodyweight"],
-    ["smithMachine", "Smith Machine"], ["battleRopes", "Battle Ropes"], ["sled", "Sled"],
-    ["jumpRope", "Jump Rope"], ["medicineBall", "Medicine Ball"], ["abWheel", "Ab Wheel"],
-    ["treadmill", "Treadmill"], ["elliptical", "Elliptical"], ["stationaryBike", "Stationary Bike"],
-    ["rowingMachine", "Rowing Machine"], ["stairClimber", "Stair Climber"], ["tire", "Tire"],
-    ["climbingRope", "Climbing Rope"], ["gymnasticRings", "Gymnastic Rings"],
-    ["flatBench", "Flat Bench"], ["inclineBench", "Incline Bench"], ["declineBench", "Decline Bench"],
-    ["preacherBench", "Preacher Bench"], ["squatRack", "Squat Rack"], ["pullUpBar", "Pull-Up Bar"],
-    ["dipStation", "Dip Station"], ["plyoBox", "Plyo Box"], ["landmineAttachment", "Landmine Attachment"]
-  ];
-
-  // Seeded from the most recent hand-drawn draft so editing can continue
-  // where the back-and-forth left off, instead of starting from blank canvases.
-  const CINDER_EQUIPMENT_SEED_MARKUP = {
-    barbell: `<line x1="5" y1="12" x2="19" y2="12"/><rect x="3.4" y="10" width="1.6" height="4" rx="0.4"/><rect x="1" y="7" width="2" height="10" rx="0.6"/><rect x="19" y="10" width="1.6" height="4" rx="0.4"/><rect x="21" y="7" width="2" height="10" rx="0.6"/>`,
-    dumbbell: `<line x1="9" y1="12" x2="15" y2="12"/><rect x="6.5" y="9" width="1.6" height="6" rx="0.4"/><rect x="4.5" y="7" width="1.6" height="10" rx="0.4"/><rect x="15.9" y="9" width="1.6" height="6" rx="0.4"/><rect x="17.9" y="7" width="1.6" height="10" rx="0.4"/>`,
-    kettlebell: `<path d="M8.3 8.6 C8.3 4.3 15.7 4.3 15.7 8.6"/><line x1="8.3" y1="8.6" x2="8.3" y2="10.4"/><line x1="15.7" y1="8.6" x2="15.7" y2="10.4"/><circle cx="12" cy="15.8" r="6.6"/>`,
-    cable: `<path d="M7 2 C7 9 11 10.5 13.5 13.5"/><polygon points="13.5,13.5 20,13.5 16.5,19.5"/>`,
-    machine: `<rect x="4" y="7" width="9" height="15" rx="1"/><line x1="5.6" y1="9.6" x2="11.4" y2="9.6"/><line x1="5.6" y1="12.4" x2="11.4" y2="12.4"/><line x1="5.6" y1="15.2" x2="11.4" y2="15.2"/><line x1="5.6" y1="18" x2="11.4" y2="18"/><circle cx="13.4" cy="10.6" r="0.8" fill="currentColor" stroke="none"/><path d="M8.5 7 L8.5 3.4 L19 3.4 L19 8"/><circle cx="19" cy="3.4" r="1.1"/>`,
-    bodyweight: `<circle cx="12" cy="4.1" r="2.1"/><line x1="12" y1="6.2" x2="12" y2="13.5"/><line x1="12" y1="8.3" x2="6" y2="5.4"/><line x1="12" y1="8.3" x2="18" y2="5.4"/><line x1="12" y1="13.5" x2="7.5" y2="21"/><line x1="12" y1="13.5" x2="16.5" y2="21"/>`,
-    smithMachine: `<line x1="6" y1="2" x2="6" y2="22"/><line x1="18" y1="2" x2="18" y2="22"/><line x1="6" y1="11" x2="18" y2="11"/><circle cx="6" cy="11" r="1"/><circle cx="18" cy="11" r="1"/><rect x="4.4" y="9" width="1.4" height="4" rx="0.3"/><rect x="18.2" y="9" width="1.4" height="4" rx="0.3"/>`,
-    battleRopes: `<rect x="19.6" y="9" width="2.6" height="8.5" rx="0.6" fill="currentColor" stroke="none"/><rect x="0.6" y="8.6" width="3.2" height="2.4" rx="0.6"/><rect x="0.6" y="15" width="3.2" height="2.4" rx="0.6"/><path d="M3.8 9.8 C10 9.8 13 16.2 19.6 16.2" stroke-width="2"/><path d="M3.8 16.2 C10 16.2 13 9.8 19.6 9.8" stroke-width="2"/>`,
-    sled: `<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="22" x2="6" y2="3"/><rect x="6" y="17.5" width="13" height="2.4" rx="0.5"/><rect x="10.5" y="14.6" width="3" height="3" rx="0.4"/>`,
-    jumpRope: `<circle cx="12" cy="8.5" r="5.5"/><path d="M6.9 10.5 C4 12.5 3.6 13.5 3.6 15"/><path d="M17.1 10.5 C20 12.5 20.4 13.5 20.4 15"/><rect x="2.4" y="14.6" width="2.4" height="4.4" rx="0.6"/><rect x="19.2" y="14.6" width="2.4" height="4.4" rx="0.6"/>`,
-    medicineBall: `<circle cx="12" cy="12" r="8.5"/><path d="M4.5 9.5 Q12 15 19.5 9.5"/>`,
-    abWheel: `<line x1="1.5" y1="12" x2="22.5" y2="12"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="2.2" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="21.8" cy="12" r="1.5" fill="currentColor" stroke="none"/>`,
-    treadmill: `<rect x="2.5" y="16.5" width="14" height="2.8" rx="1.2"/><circle cx="4.5" cy="19.8" r="1.1"/><circle cx="14.5" cy="19.8" r="1.1"/><line x1="12" y1="16.5" x2="14.8" y2="8.5"/><line x1="15.5" y1="16.5" x2="19.5" y2="3.5"/><rect x="17.8" y="2" width="4.2" height="3" rx="0.6"/>`,
-    elliptical: `<circle cx="8" cy="15" r="6"/><circle cx="8" cy="21.2" r="1"/><line x1="11.4" y1="11.2" x2="10.3" y2="2.5"/><line x1="12.6" y1="12.6" x2="13.6" y2="3.2"/><rect x="9" y="1" width="1.6" height="2.8" rx="0.4"/><rect x="12.8" y="1.7" width="1.6" height="2.8" rx="0.4"/><line x1="13.4" y1="13.6" x2="21.5" y2="11.8"/><line x1="13.6" y1="16.5" x2="21.5" y2="16"/><circle cx="21.7" cy="13.9" r="1.1"/>`,
-    stationaryBike: `<circle cx="5.5" cy="17" r="4"/><circle cx="18.5" cy="17" r="4"/><circle cx="5.5" cy="17" r="0.7" fill="currentColor" stroke="none"/><circle cx="18.5" cy="17" r="0.7" fill="currentColor" stroke="none"/><polyline points="5.5,17 11,7.5 18.5,17"/><line x1="11" y1="7.5" x2="8" y2="17"/><line x1="9.5" y1="9" x2="14" y2="9"/><line x1="11" y1="7.5" x2="14.5" y2="4.5"/><line x1="13" y1="4" x2="16.5" y2="5"/>`,
-    rowingMachine: `<rect x="1.5" y="19.3" width="17" height="1.6" rx="0.8"/><rect x="6.5" y="17.1" width="4.5" height="2.2" rx="0.6"/><circle cx="19.5" cy="16.5" r="3.2"/><line x1="16.3" y1="16.5" x2="4" y2="16.5"/><line x1="4" y1="14.8" x2="4" y2="18.2"/>`,
-    stairClimber: `<line x1="2" y1="22" x2="22" y2="22"/><line x1="4" y1="22" x2="4" y2="3"/><path d="M4 3 L6 3 L6 6.6 L9 6.6 L9 10.2 L12 10.2 L12 13.7 L20 22"/><line x1="13" y1="22" x2="13" y2="10.5"/>`,
-    tire: `<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="1.2" x2="12" y2="3"/><line x1="19.5" y1="4.5" x2="18.2" y2="6"/><line x1="22.3" y1="12" x2="20.5" y2="12"/><line x1="19.5" y1="19.5" x2="18.2" y2="18"/><line x1="12" y1="22.3" x2="12" y2="20.5"/><line x1="4.5" y1="19.5" x2="6" y2="18"/><line x1="1.2" y1="12" x2="3" y2="12"/><line x1="4.5" y1="4.5" x2="6" y2="6"/>`,
-    climbingRope: `<rect x="10.5" y="1" width="3" height="1.6" rx="0.4"/><path d="M12 2.6 C9 6 15 9 12 12 C9 15 15 18 12 22"/><circle cx="12.4" cy="9" r="0.6" fill="currentColor" stroke="none"/><circle cx="12.4" cy="16" r="0.6" fill="currentColor" stroke="none"/>`,
-    gymnasticRings: `<line x1="8" y1="2" x2="8" y2="7"/><line x1="16" y1="2" x2="16" y2="7"/><circle cx="8" cy="12" r="4.2"/><circle cx="16" cy="12" r="4.2"/>`,
-    flatBench: `<rect x="3" y="9" width="18" height="3" rx="1"/><line x1="6" y1="12" x2="6" y2="20"/><line x1="18" y1="12" x2="18" y2="20"/>`,
-    inclineBench: `<rect x="5" y="15" width="10" height="2.6" rx="0.8"/><line x1="7" y1="17.6" x2="7" y2="21"/><line x1="13" y1="17.6" x2="13" y2="21"/><polygon points="14,15 21,4 23,5 16,16"/>`,
-    declineBench: `<rect x="5" y="15" width="10" height="2.6" rx="0.8"/><line x1="7" y1="17.6" x2="7" y2="21"/><line x1="13" y1="17.6" x2="13" y2="21"/><polygon points="14.4,17 21.4,22.7 22.6,21.3 15.6,15.6"/>`,
-    preacherBench: `<rect x="14" y="15" width="7" height="2.6" rx="0.8"/><line x1="19" y1="17.6" x2="19" y2="21"/><polygon points="14.8,10.4 4.4,20.8 2.2,18.6 12.6,8.2"/><line x1="8" y1="13" x2="8" y2="21"/>`,
-    squatRack: `<line x1="5" y1="2" x2="5" y2="22"/><line x1="19" y1="2" x2="19" y2="22"/><line x1="4" y1="6" x2="6" y2="6"/><line x1="4" y1="9" x2="6" y2="9"/><line x1="4" y1="12" x2="6" y2="12"/><line x1="18" y1="6" x2="20" y2="6"/><line x1="18" y1="9" x2="20" y2="9"/><line x1="18" y1="12" x2="20" y2="12"/><line x1="5" y1="9" x2="19" y2="9"/><rect x="3.4" y="7.4" width="1.6" height="3.2" rx="0.4"/><rect x="19" y="7.4" width="1.6" height="3.2" rx="0.4"/><line x1="2" y1="22" x2="8" y2="22"/><line x1="16" y1="22" x2="22" y2="22"/>`,
-    pullUpBar: `<line x1="6" y1="2" x2="6" y2="8"/><line x1="18" y1="2" x2="18" y2="8"/><line x1="5" y1="8" x2="19" y2="8"/>`,
-    dipStation: `<line x1="3" y1="10" x2="21" y2="10"/><line x1="5" y1="7" x2="19" y2="7"/><line x1="5" y1="10" x2="5" y2="21"/><line x1="19" y1="10" x2="19" y2="21"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/>`,
-    plyoBox: `<rect x="4" y="9" width="12" height="12"/><polygon points="4,9 8,4 20,4 16,9"/><polygon points="16,9 20,4 20,16 16,21"/>`,
-    landmineAttachment: `<ellipse cx="6" cy="21" rx="3" ry="1.4"/><circle cx="6" cy="19" r="1.6"/><line x1="6" y1="19" x2="20" y2="5"/><polygon points="20.5,8.1 16.9,4.5 15.5,5.9 19.1,9.5"/>`
-  };
-
   // Actual default for a fresh (never-used-this-tool-before) browser -
-  // a small generic pack for a new user to poke at, not this project's
-  // own in-progress equipment icons. Each one also doubles as a quick
-  // demo of a different tool feature (straight-corner path, a smooth
-  // bezier curve, Knockout, combining multiple shapes, corner-radius
-  // rounding). Built as real shape objects directly (not raw SVG text
-  // parsed through parseMarkupToShapes, the way CINDER_EQUIPMENT_SEED_
-  // MARKUP above is) so fields like knockout/cornerRadius can just be
-  // set outright with total confidence, instead of hand-authoring SVG
-  // text precisely shaped to round-trip back through mask/knockout
-  // reconstruction correctly - that exact reconstruction has been a
-  // repeat source of real bugs this session, not a risk worth taking
-  // for seed data with no upside to going through it.
+  // a small generic pack for a new user to poke at. Each one also
+  // doubles as a quick demo of a different tool feature (straight-corner
+  // path, a smooth bezier curve, Knockout, combining multiple shapes,
+  // corner-radius rounding). Built as real shape objects directly (not
+  // raw SVG text parsed through parseMarkupToShapes) so fields like
+  // knockout/cornerRadius can just be set outright with total
+  // confidence, instead of hand-authoring SVG text precisely shaped to
+  // round-trip back through mask/knockout reconstruction correctly -
+  // that exact reconstruction has been a repeat source of real bugs
+  // this session, not a risk worth taking for seed data with no upside
+  // to going through it.
   const DEFAULT_ICON_SEED = [
     ["star", "Star"], ["heart", "Heart"], ["smiley", "Smiley"],
     ["house", "House"], ["roundedSquare", "Rounded Square"]
@@ -1950,6 +1920,34 @@
     );
     if (doc.querySelector("parsererror")) return { shapes: [], skipped: 1 };
     const root = doc.documentElement;
+    // Standalone/PNG/WebP export with custom shape colors wraps each
+    // shape's markup in <g style="color:X"> (shapesMarkupWithColor) -
+    // for most shapes that's one element, but a Cut compound's markup
+    // is 3 sibling elements (mask+clipPath+path) all inside that same
+    // one <g>. Flatten every such wrapper in place, bottom-up, BEFORE
+    // any of the mask-reconstruction/shape parsing below runs, so it
+    // sees the exact same flat sibling structure a plain (uncolored)
+    // icon export already has - remembering each hoisted node's color
+    // in a WeakMap so it can be stamped onto whatever shape(s) that
+    // node ends up producing. A <g mask="..."> (Knockout's own export
+    // wrapper) is never itself unwrapped, only recursed into, since the
+    // mask-reconstruction loop below still needs to find it as a "g".
+    const nodeColor = new WeakMap();
+    function unwrapColorGroups(container) {
+      Array.from(container.children).forEach((node) => {
+        if (node.tagName.toLowerCase() === "g") unwrapColorGroups(node);
+      });
+      Array.from(container.children).forEach((node) => {
+        if (node.tagName.toLowerCase() !== "g" || node.hasAttribute("mask")) return;
+        const colorMatch = (node.getAttribute("style") || "").match(/color\s*:\s*([^;]+)/i);
+        Array.from(node.children).forEach((kid) => {
+          if (colorMatch) nodeColor.set(kid, colorMatch[1].trim());
+          container.insertBefore(kid, node);
+        });
+        container.removeChild(node);
+      });
+    }
+    unwrapColorGroups(root);
     const out = [];
     let skipped = 0;
     // This tool's own Cut export is three siblings - a <mask> (the kept
@@ -1988,14 +1986,19 @@
       const visibleGroup = !visiblePath && Array.from(root.children).find((c) => c.tagName.toLowerCase() === "g" && (c.getAttribute("mask") || "").indexOf("#" + maskId) >= 0);
       if (visiblePath) {
         if (!clipD || !frontD) return;
-        out.push({ id: uid(), type: "compound", d: clipD + " " + frontD, clipD: clipD, frontD: frontD, rotation: inferRotation(visiblePath), ...inferStyle(visiblePath) });
+        const cutColor = nodeColor.get(visiblePath) || nodeColor.get(blackPath);
+        out.push({ id: uid(), type: "compound", d: clipD + " " + frontD, clipD: clipD, frontD: frontD, rotation: inferRotation(visiblePath), ...inferStyle(visiblePath), ...(cutColor ? { color: cutColor } : {}) });
         consumed.add(visiblePath);
       } else if (visibleGroup) {
         if (!frontD) return;
         out.push({ id: uid(), type: "compound", op: "union", d: frontD, knockout: true, style: "filled", strokeWidth: 1.6 });
         Array.from(visibleGroup.children).forEach((child) => {
           const parsed = parseOneShapeNode(child);
-          if (parsed) out.push(parsed); else skipped++;
+          if (parsed) {
+            const c = nodeColor.get(child);
+            if (c) parsed.color = c;
+            out.push(parsed);
+          } else skipped++;
         });
         consumed.add(visibleGroup);
       } else {
@@ -2082,7 +2085,11 @@
     Array.from(root.children).forEach((node) => {
       if (consumed.has(node)) return;
       const parsed = parseOneShapeNode(node);
-      if (parsed) out.push(parsed); else skipped++;
+      if (parsed) {
+        const c = nodeColor.get(node);
+        if (c) parsed.color = c;
+        out.push(parsed);
+      } else skipped++;
     });
     return { shapes: out, skipped };
   }
@@ -2449,7 +2456,7 @@
   }
   function loadProject() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
       if (!raw) return null;
       const p = JSON.parse(raw);
       if (!p.icons || !p.activeKey || !p.viewBox) return null;
@@ -2587,6 +2594,17 @@
   // computeAlignSnap during a "move" drag - [{ axis: "v"|"h", pos, from, to }].
   // Render-only; cleared whenever a move drag isn't in progress.
   let alignGuides = null;
+  // Reference image for tracing over, rendered behind the grid. Session-
+  // only (not part of `project`, never saved to localStorage/project
+  // JSON, never exported) - purely a drawing aid, same spirit as the
+  // grid itself. { src (data URL), x, y, w, h, opacity } in the same
+  // logical/viewBox units as every shape.
+  let traceImage = null;
+  // Only set while dragging inside the "trace" tool - { mode: "move" |
+  // "resize", handle, start (logical pt), orig (traceImage snapshot) }.
+  // Kept separate from dragMode/dragOrigShape on purpose: it never
+  // touches shapes(), history, or saveProject at all.
+  let traceDrag = null;
   let draftShape = null;
   let penDraft = null;
   let penPendingDrag = null;
@@ -2810,6 +2828,16 @@
     const handleName = target.getAttribute && target.getAttribute("data-handle");
     const shapeId = target.getAttribute && target.getAttribute("data-id");
 
+    if (tool === "trace") {
+      if (!traceImage) return;
+      const traceHandle = target.getAttribute && target.getAttribute("data-trace-handle");
+      if (traceHandle) {
+        traceDrag = { mode: traceHandle === "move" ? "move" : "resize", handle: traceHandle, start: p, orig: { ...traceImage } };
+        evt.preventDefault();
+      }
+      return;
+    }
+
     if (tool === "select") {
       // Only for an actual shape click below (handles use handleName,
       // resolved above via plain evt.target - a handle's own hit-target
@@ -3007,6 +3035,35 @@
     }
     const p = toLogical(evt);
 
+    if (traceDrag && traceImage) {
+      const dx = p.x - traceDrag.start.x, dy = p.y - traceDrag.start.y;
+      const orig = traceDrag.orig;
+      if (traceDrag.mode === "move") {
+        traceImage.x = orig.x + dx;
+        traceImage.y = orig.y + dy;
+      } else {
+        let x = orig.x, y = orig.y, w = orig.w, h = orig.h;
+        if (traceDrag.handle === "trace-se") { w = orig.w + dx; h = orig.h + dy; }
+        else if (traceDrag.handle === "trace-nw") { w = orig.w - dx; h = orig.h - dy; x = orig.x + orig.w - w; y = orig.y + orig.h - h; }
+        else if (traceDrag.handle === "trace-ne") { w = orig.w + dx; h = orig.h - dy; y = orig.y + orig.h - h; }
+        else if (traceDrag.handle === "trace-sw") { w = orig.w - dx; h = orig.h + dy; x = orig.x + orig.w - w; }
+        // Shift preserves the image's original aspect ratio - re-anchored
+        // from whichever corner is actually being dragged, same as the
+        // opposite-corner-stays-put convention every other resize here uses.
+        if (shiftHeld && orig.h) {
+          const ratio = orig.w / orig.h;
+          if (Math.abs(w - orig.w) > Math.abs(h - orig.h)) h = w / ratio; else w = h * ratio;
+          if (traceDrag.handle === "trace-nw") { x = orig.x + orig.w - w; y = orig.y + orig.h - h; }
+          else if (traceDrag.handle === "trace-ne") { y = orig.y + orig.h - h; }
+          else if (traceDrag.handle === "trace-sw") { x = orig.x + orig.w - w; }
+        }
+        traceImage.x = x; traceImage.y = y;
+        traceImage.w = Math.max(1, w); traceImage.h = Math.max(1, h);
+      }
+      render();
+      return;
+    }
+
     if (dragMode === "draw" && draftShape) {
       const sp = snapPt(p);
       if (draftShape.type === "rect") {
@@ -3164,6 +3221,7 @@
         return;
       }
     }
+    if (traceDrag) { traceDrag = null; return; }
     if (dragMode === "pan") { dragMode = null; return; }
     if (dragMode === "draw" && draftShape) {
       const tooSmall =
@@ -3315,6 +3373,7 @@
     if (e.key === "h" || e.key === "H") setTool("cut");
     if (e.key === "p" || e.key === "P") setTool("pan");
     if (e.key === "m" || e.key === "M") setTool("multi");
+    if (e.key === "t" || e.key === "T") setTool("trace");
     if (e.key === "Enter" && (tool === "curve" || tool === "polygon") && penDraft) { commitPenDraft(); render(); }
     if (e.key === "Escape") {
       if (!cancelActiveDrag()) {
@@ -3341,6 +3400,12 @@
   // leaving a bad resize/rotate/move committed — no Undo needed for a
   // mis-grabbed handle. Returns true if it actually cancelled something.
   function cancelActiveDrag() {
+    if (traceDrag) {
+      traceImage = { ...traceDrag.orig };
+      traceDrag = null;
+      render();
+      return true;
+    }
     if (dragMode === "move" || dragMode === "handle" || dragMode === "rotate" || dragMode === "bendline") {
       if (dragOrigShape) {
         const arr = shapes();
@@ -3974,6 +4039,40 @@
     e.target.value = "";
   });
 
+  document.getElementById("traceImageInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const vb = project.viewBox;
+        // Fit inside 90% of the viewBox, but never upscale a small source
+        // image past its own 1:1 pixel-to-unit size by default - a tiny
+        // reference image blown up huge would just be blurry, and the
+        // Trace tool can resize it larger by hand if that's wanted anyway.
+        const scale = Math.min((vb.w * 0.9) / img.naturalWidth, (vb.h * 0.9) / img.naturalHeight, 1) || 1;
+        const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
+        traceImage = { src: reader.result, x: (vb.w - w) / 2, y: (vb.h - h) / 2, w: w, h: h, opacity: 0.4 };
+        setTool("trace");
+        render();
+      };
+      img.onerror = () => showAlert("Couldn't load that as an image.");
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  });
+  document.getElementById("traceRemoveBtn").addEventListener("click", () => {
+    traceImage = null;
+    render();
+  });
+  document.getElementById("traceOpacitySlider").addEventListener("input", (e) => {
+    if (!traceImage) return;
+    traceImage.opacity = +e.target.value;
+    renderTrace();
+  });
+
   document.getElementById("importBtn").addEventListener("click", () => {
     const ta = document.getElementById("importText");
     const text = ta.value.trim();
@@ -4037,18 +4136,38 @@
   // User-configurable (the "Export size" field, standalone mode only) -
   // session-only like zoom/grid/snap, not part of project content.
   let standaloneExportPx = 1024;
+  // User-editable override for the downloaded file's base name (no
+  // extension - each export path appends its own). Blank means "use the
+  // auto-derived name" (icon key, or the pack/standalone-suffixed
+  // variants) exactly like before this existed. Once a custom name is
+  // typed it's used VERBATIM (no icon-key prefix, no "-standalone"
+  // suffix added on top) - the whole point is the user gets to say
+  // exactly what the file is called.
+  function customFilenameBase() {
+    const input = document.getElementById("exportFilenameInput");
+    if (!input) return "";
+    // Strip a trailing extension the user typed themselves (e.g. pasting
+    // "logo.svg" back in) - every call site appends its own real one
+    // right after this, so keeping theirs too would double it up into
+    // "logo.svg.svg".
+    return input.value.trim().replace(/[\\/:*?"<>|]/g, "").replace(/\.(svg|png|webp|json)$/i, "").trim();
+  }
+  function defaultFilenameBase(mode) {
+    if (mode === "all") return "svg-icon-pack";
+    return project.activeKey + (mode === "standalone" ? "-standalone" : "");
+  }
   function wrapSvgDocument(text, mode) {
     const xmlHeader = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    const base = customFilenameBase() || defaultFilenameBase(mode);
     if (mode === "all") {
-      return { full: xmlHeader + '<svg xmlns="' + SVGNS + '" width="0" height="0" style="position:absolute">\n' + text + "\n</svg>", filename: "svg-icon-pack.svg" };
+      return { full: xmlHeader + '<svg xmlns="' + SVGNS + '" width="0" height="0" style="position:absolute">\n' + text + "\n</svg>", filename: base + ".svg" };
     }
     const vb = project.viewBox;
     const dims = mode === "standalone"
       ? { w: standaloneExportPx, h: Math.round((standaloneExportPx * vb.h) / vb.w) }
       : { w: vb.w, h: vb.h };
     const full = xmlHeader + '<svg xmlns="' + SVGNS + '" viewBox="0 0 ' + vb.w + " " + vb.h + '" width="' + dims.w + '" height="' + dims.h + '">\n  ' + text + "\n</svg>";
-    const filename = project.activeKey + (mode === "standalone" ? "-standalone" : "") + ".svg";
-    return { full, filename };
+    return { full, filename: base + ".svg" };
   }
   function currentExportMode() {
     const modeInput = document.querySelector('input[name="exportMode"]:checked');
@@ -4108,7 +4227,7 @@
         // Naming it from blob.type instead means the filename always
         // matches what's actually inside it.
         const actualExt = blob.type === "image/webp" ? "webp" : blob.type === "image/png" ? "png" : ext;
-        const filename = project.activeKey + "-standalone." + actualExt;
+        const filename = (customFilenameBase() || (project.activeKey + "-standalone")) + "." + actualExt;
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = filename;
@@ -4469,6 +4588,28 @@
     document.getElementById("shapesLayer").innerHTML = markup;
   }
 
+  // Reference/trace image, drawn into its own layer BEHIND the grid (see
+  // #artboard's child order) so the grid lines still read on top of it -
+  // never part of shapes()/project, so it's never touched by undo,
+  // never saved, and never appears in any export.
+  function renderTrace() {
+    const layer = document.getElementById("traceLayer");
+    const removeBtn = document.getElementById("traceRemoveBtn");
+    const opacityRow = document.getElementById("traceOpacityRow");
+    if (!traceImage) {
+      layer.innerHTML = "";
+      removeBtn.disabled = true;
+      opacityRow.style.display = "none";
+      return;
+    }
+    layer.innerHTML = '<image href="' + traceImage.src + '" x="' + fmt(traceImage.x) + '" y="' + fmt(traceImage.y) +
+      '" width="' + fmt(traceImage.w) + '" height="' + fmt(traceImage.h) + '" opacity="' + traceImage.opacity +
+      '" preserveAspectRatio="none" style="pointer-events:none"/>';
+    removeBtn.disabled = false;
+    opacityRow.style.display = "flex";
+    document.getElementById("traceOpacitySlider").value = traceImage.opacity;
+  }
+
   function renderUI() {
     const parts = [];
     // Knockout shapes never paint their own fill (see
@@ -4623,6 +4764,12 @@
         if (g.axis === "v") parts.push('<line x1="' + fmt(g.pos) + '" y1="' + fmt(g.from) + '" x2="' + fmt(g.pos) + '" y2="' + fmt(g.to) + '" class="align-guide"/>');
         else parts.push('<line x1="' + fmt(g.from) + '" y1="' + fmt(g.pos) + '" x2="' + fmt(g.to) + '" y2="' + fmt(g.pos) + '" class="align-guide"/>');
       });
+    }
+    if (tool === "trace" && traceImage) {
+      parts.push('<rect x="' + fmt(traceImage.x) + '" y="' + fmt(traceImage.y) + '" width="' + fmt(traceImage.w) + '" height="' + fmt(traceImage.h) + '" class="trace-bounds" data-trace-handle="move"/>');
+      [["nw", traceImage.x, traceImage.y], ["ne", traceImage.x + traceImage.w, traceImage.y],
+       ["sw", traceImage.x, traceImage.y + traceImage.h], ["se", traceImage.x + traceImage.w, traceImage.y + traceImage.h]]
+        .forEach(([name, hx, hy]) => parts.push(handleMarkup(hx, hy, "trace-" + name)));
     }
     document.getElementById("uiLayer").innerHTML = parts.join("");
   }
@@ -5115,6 +5262,7 @@
     // real, complete, pasteable SVG document - not just the inner
     // fragment - even before Copy/Download ever run once.
     document.getElementById("exportText").value = wrapSvgDocument(rawExportMarkup(), currentExportMode()).full;
+    document.getElementById("exportFilenameInput").placeholder = defaultFilenameBase(currentExportMode());
   }
 
   // Everything that's actually affected by pan/zoom: the SVG's own
@@ -5156,6 +5304,7 @@
     boolSet = boolSet.filter((id) => !!getShapeById(id));
     multiSelect = multiSelect.filter((id) => !!getShapeById(id));
     renderCanvasTransform();
+    renderTrace();
     renderShapesLayer();
     renderIconList();
     renderLayerList();
