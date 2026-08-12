@@ -525,7 +525,15 @@
   #canvasBgLayer, #traceLayer, #gridLayer, #shapesLayer { pointer-events: none; }
   #gridLayer line { stroke: var(--border); stroke-width: 0.05; }
   #gridLayer line.major { stroke-width: 0.08; opacity: 0.9; }
-  #shapesLayer { color: var(--text); }
+  /* Clipped to the icon's own TRUE bounds (see the #iconBoundsClip def
+     in renderGrid) - a shape dragged past the edge now visually cuts
+     off in the canvas exactly like it would in Preview/export, instead
+     of rendering fully inside the extra margin workspace as if that
+     were real drawable space. #uiLayer (handles, selection outlines,
+     bezier handle lines) is deliberately NOT clipped - those still
+     need to stay visible/grabbable out in the margin, that's the whole
+     reason the margin exists (see CANVAS_MARGIN_RATIO's comment). */
+  #shapesLayer { color: var(--text); clip-path: url(#iconBoundsClip); }
   /* No non-scaling-stroke here (removed) - stroke-width is stored in the
      icon's own viewBox units, same as the export, so it should scale
      with zoom exactly like it will in the real exported SVG. A fixed
@@ -2813,8 +2821,12 @@
   // handles especially often want to reach past the icon's own edge)
   // while canvasClampBounds/clampToCanvasMargin (below) guarantee a
   // handle dragged toward that room can never go far enough to become
-  // unreachable again.
-  const CANVAS_MARGIN_RATIO = 0.5;
+  // unreachable again. Trimmed from the original 0.5 - between this
+  // and #shapesLayer's new clip-path (renderGrid), the margin no
+  // longer reads as if it were real drawable space (content actually
+  // visible there now only ever means "still draggable," never "will
+  // export"), so less of it needs to be on-screen by default.
+  const CANVAS_MARGIN_RATIO = 0.3;
   function canvasClampBounds() {
     const { w, h } = project.viewBox;
     const margin = Math.max(w, h) * CANVAS_MARGIN_RATIO;
@@ -5200,7 +5212,13 @@
     // first element, which opaquely painted over the trace image sitting
     // behind that whole layer instead of just behind the grid LINES like
     // it's supposed to be.
+    // #iconBoundsClip - referenced by #shapesLayer's own clip-path CSS
+    // rule, so shape geometry visually cuts off at the icon's true
+    // bounds in the canvas view, matching Preview/export. Rebuilt here
+    // (not a static def elsewhere) since its rect must track the same
+    // live w/h this function already recomputes on every render.
     document.getElementById("canvasBgLayer").innerHTML =
+      '<clipPath id="iconBoundsClip"><rect x="0" y="0" width="' + fmt(w) + '" height="' + fmt(h) + '"/></clipPath>' +
       '<rect x="0" y="0" width="' + fmt(w) + '" height="' + fmt(h) + '" fill="var(--canvas-bg)" stroke="var(--border)" stroke-width="' + fmt(1 / zoom) + '"/>';
     let parts = [];
     if (!showGrid) { g.innerHTML = parts.join(""); return; }
