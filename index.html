@@ -345,7 +345,11 @@
   .icon-row-eye:hover { color: var(--accent); }
   .icon-row.layer-hidden .icon-row-eye { color: var(--text-muted); opacity: 0.5; }
   .icon-row.layer-hidden .icon-row-name, .icon-row.layer-hidden .icon-row-count { opacity: 0.5; }
-  .layer-opacity-row { padding: 0 8px 4px 8px; margin-top: -2px; }
+  /* Nested INSIDE .icon-row[data-layer] now (was a separate sibling
+     strip below it) - just a little top padding/gap to separate it
+     from .icon-row-main above, since the outer box's own padding
+     already handles the left/right/bottom inset. */
+  .layer-opacity-row { padding-top: 2px; }
   .layer-opacity-slider { width: 100%; height: 14px; accent-color: var(--accent); cursor: pointer; }
   /* Layer rows (identified by data-layer, unlike the icon list's
      data-key rows) are pointer-drag-reorderable - see renderLayerList.
@@ -353,12 +357,46 @@
      #layerList instead of reordering; the user-select/touch-callout
      override on the name specifically (beating the broader
      .icon-row-name rule via specificity) stops a press-drag starting
-     on the text itself from being hijacked into a text selection. */
-  .icon-row[data-layer] { cursor: grab; touch-action: none; }
+     on the text itself from being hijacked into a text selection.
+     Scoped to [data-layer] throughout this block, NOT the bare
+     .icon-row class - that class is shared with the icon-strip's own
+     tabs above the canvas (#iconList .icon-row), which don't have an
+     opacity slider and shouldn't grow to match these touch-sized
+     buttons. */
+  .icon-row[data-layer] {
+    cursor: grab; touch-action: none;
+    flex-direction: column; align-items: stretch; gap: 4px;
+    padding: 10px 8px;
+  }
   .icon-row[data-layer]:active { cursor: grabbing; }
   .icon-row[data-layer] .icon-row-name { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .icon-row.dragging { opacity: 0.4; }
   .icon-row.drop-target { outline: 2px dashed var(--accent-2); outline-offset: -2px; }
+  /* Recreates the horizontal layout .icon-row itself used to provide
+     directly, before [data-layer] switched to a column (see above) to
+     fit the opacity slider inside the same box. flex-wrap so 6 bigger
+     touch-target buttons plus the name/count can never overflow the
+     drawer's width and get invisibly clipped (that's exactly what
+     happened at the first, larger button size tried here - confirmed
+     via a real screenshot, not assumed) - they wrap onto a second line
+     inside the same box instead, still one cohesive card either way. */
+  .icon-row-main { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .icon-row-main .icon-row-name { flex: 1 1 70px; }
+  /* Taller touch targets for the layer row's own buttons - the small
+     2-3px-padding/10-11px-font versions above were hard to see and hit
+     on a touchscreen. min-width/min-height (not just padding) so the
+     hit target itself grows even for narrow glyphs like the arrows.
+     Sized to comfortably fit all 6 in the default drawer width without
+     relying on the wrap above for the common case - wrap is the
+     safety net for a narrowed drawer, not the expected layout. */
+  .icon-row[data-layer] .icon-row-eye,
+  .icon-row[data-layer] .icon-row-move,
+  .icon-row[data-layer] .icon-row-copy,
+  .icon-row[data-layer] .icon-row-rename,
+  .icon-row[data-layer] .icon-row-del {
+    min-width: 28px; min-height: 28px; padding: 4px;
+    font-size: 13px; display: flex; align-items: center; justify-content: center;
+  }
 
   .stack { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
   /* Only one right-panel is ever visible at a time now (the rail's tab
@@ -4804,14 +4842,26 @@
     // wired to array position, not display position.
     // Small hand-drawn eye/eye-off glyph (no emoji) - same open-path
     // style as the rest of this tool's own icon set.
-    const eyeSvg = (hidden) => '<svg viewBox="0 0 16 10" width="14" height="10" class="icon-row-eye-svg">' +
+    const eyeSvg = (hidden) => '<svg viewBox="0 0 16 10" width="18" height="13" class="icon-row-eye-svg">' +
       '<path d="M1 5 C1 5 4 1 8 1 C12 1 15 5 15 5 C15 5 12 9 8 9 C4 9 1 5 1 5 Z" fill="none" stroke="currentColor" stroke-width="1.3"/>' +
       (hidden ? '' : '<circle cx="8" cy="5" r="1.8" fill="currentColor"/>') +
       (hidden ? '<line x1="1" y1="1" x2="15" y2="9" stroke="currentColor" stroke-width="1.3"/>' : '') +
       "</svg>";
+    // Layer rows: a taller touch target than the icon-strip tabs that
+    // also happen to share the .icon-row/.icon-row-del classes (see
+    // the [data-layer]-scoped CSS overrides) - the small copy/rename/
+    // move/delete buttons were hard to see and hit on a touchscreen.
+    // The opacity slider also now lives INSIDE this same box
+    // (.icon-row-main wraps the old horizontal content, the slider
+    // sits below it as a second child) rather than as a separate
+    // sibling strip hanging below an unrelated-looking row - one card,
+    // not two. .icon-row[data-layer] itself switches to a column flex
+    // container for this (see CSS) - .icon-row-main recreates the
+    // horizontal row that used to be .icon-row's own direct layout.
     const rows = layers.slice().reverse().map((layer, displayIdx) => {
       const idx = layers.length - 1 - displayIdx;
       return '<div class="icon-row' + (layer.id === active ? " active" : "") + (layer.hidden ? " layer-hidden" : "") + '" data-layer="' + layer.id + '">' +
+        '<div class="icon-row-main">' +
         '<button class="icon-row-eye" data-eye-layer="' + layer.id + '" title="' + (layer.hidden ? "Show layer" : "Hide layer (also skips it on export)") + '">' + eyeSvg(!!layer.hidden) + "</button>" +
         '<span class="icon-row-name">' + layer.name + "</span>" +
         '<span class="icon-row-count">' + (counts[layer.id] || 0) + "</span>" +
@@ -4821,7 +4871,8 @@
         '<button class="icon-row-rename" data-rename-layer="' + layer.id + '" title="Rename layer (double-clicking the name does the same thing)">✎</button>' +
         (layers.length > 1 ? '<button class="icon-row-del" data-del-layer="' + layer.id + '" title="Delete layer — also permanently deletes its shapes">✕</button>' : "") +
         "</div>" +
-        '<div class="layer-opacity-row"><input type="range" class="layer-opacity-slider" data-layer="' + layer.id + '" min="0" max="1" step="0.05" value="' + (layer.opacity != null ? layer.opacity : 1) + '" title="Layer opacity"></div>';
+        '<div class="layer-opacity-row"><input type="range" class="layer-opacity-slider" data-layer="' + layer.id + '" min="0" max="1" step="0.05" value="' + (layer.opacity != null ? layer.opacity : 1) + '" title="Layer opacity"></div>' +
+        "</div>";
     });
     list.innerHTML = rows.join("");
     // Drag-to-reorder via plain pointer events, NOT native HTML5 drag-
@@ -4849,7 +4900,7 @@
     }
     list.querySelectorAll(".icon-row").forEach((row) => {
       row.addEventListener("click", (e) => {
-        if (e.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-rename, .icon-row-eye")) return;
+        if (e.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-rename, .icon-row-eye, .layer-opacity-row")) return;
         activeLayerId = row.dataset.layer;
         renderLayerList();
       });
@@ -4859,7 +4910,7 @@
         renameLayer(layers.find((l) => l.id === row.dataset.layer));
       });
       row.addEventListener("pointerdown", (evt) => {
-        if (evt.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-rename, .icon-row-eye")) return;
+        if (evt.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-rename, .icon-row-eye, .layer-opacity-row")) return;
         const startX = evt.clientX, startY = evt.clientY;
         const draggedId = row.dataset.layer;
         let dragging = false;
