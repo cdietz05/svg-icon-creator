@@ -330,6 +330,13 @@
   .icon-row-del:hover { color: var(--danger); }
   .icon-row-move { font-size: 10px; color: var(--text-muted); background: none; border: none; padding: 2px 3px; line-height: 1; }
   .icon-row-move:hover:not(:disabled) { color: var(--accent); }
+  /* Own class, NOT .icon-row-move - a generic ".icon-row-move" query
+     would also match this and try to read its (nonexistent)
+     data-move-layer/data-dir, misfiring the move-layer reorder logic
+     on a copy click. Same class of collision already caught more than
+     once this session with reused button classes. */
+  .icon-row-copy { font-size: 11px; color: var(--text-muted); background: none; border: none; padding: 2px 3px; line-height: 1; }
+  .icon-row-copy:hover { color: var(--accent); }
   .icon-row-move:disabled { opacity: 0.25; cursor: default; }
   .icon-row-eye { flex: none; color: var(--text-muted); background: none; border: none; padding: 2px 3px; display: flex; align-items: center; }
   .icon-row-eye:hover { color: var(--accent); }
@@ -4267,15 +4274,67 @@
     pushHistory(); saveProject(); render();
   });
 
-  document.getElementById("addLayerBtn").addEventListener("click", async () => {
-    const name = await showPrompt('New layer name (e.g. "Front"):', "");
-    if (!name || !name.trim()) return;
+  // "Layer N" - scans for the first unused N rather than assuming
+  // layers.length + 1, so renaming/deleting layers along the way never
+  // produces a colliding default name.
+  function nextLayerName(layers) {
+    const used = new Set(layers.map((l) => l.name));
+    let n = 1;
+    while (used.has("Layer " + n)) n++;
+    return "Layer " + n;
+  }
+  // "X copy", "X copy 2", ... - used when duplicating an existing
+  // layer, so the copy's default name obviously relates to its source
+  // instead of just the next generic "Layer N".
+  function nextCopyName(layers, baseName) {
+    const used = new Set(layers.map((l) => l.name));
+    if (!used.has(baseName + " copy")) return baseName + " copy";
+    let n = 2;
+    while (used.has(baseName + " copy " + n)) n++;
+    return baseName + " copy " + n;
+  }
+  // Double-click a layer's name (see renderLayerList) still renames it
+  // afterward - a default name just means nothing has to be TYPED to
+  // add one in the first place.
+  document.getElementById("addLayerBtn").addEventListener("click", () => {
     const layers = ensureIconLayers(activeIcon());
-    const newLayer = { id: uid(), name: name.trim() };
+    const newLayer = { id: uid(), name: nextLayerName(layers) };
     layers.push(newLayer);
     activeLayerId = newLayer.id;
     pushHistory(); saveProject(); render();
   });
+  // Clones every shape on the layer (fresh ids, grouped members re-
+  // grouped among themselves under fresh groupIds so a clone is never
+  // silently linked into its original's group) into a brand-new layer
+  // inserted right after the source - lands in the exact same
+  // position (no offset, unlike duplicateShapes' shape-level copy),
+  // since a duplicated LAYER is meant to sit stacked on its source, not
+  // shifted like a copy-pasted shape.
+  function duplicateLayer(layerId) {
+    const icon = activeIcon();
+    const layers = iconLayers(icon);
+    const idx = layers.findIndex((l) => l.id === layerId);
+    if (idx < 0) return;
+    const src = layers[idx];
+    const newLayer = { id: uid(), name: nextCopyName(layers, src.name) };
+    if (src.opacity != null) newLayer.opacity = src.opacity;
+    if (src.hidden) newLayer.hidden = src.hidden;
+    const groupIdMap = {};
+    const clones = icon.shapes.filter((s) => s.layer === layerId).map((s) => {
+      const clone = JSON.parse(JSON.stringify(s));
+      clone.id = uid();
+      clone.layer = newLayer.id;
+      if (clone.groupId) {
+        if (!groupIdMap[clone.groupId]) groupIdMap[clone.groupId] = uid();
+        clone.groupId = groupIdMap[clone.groupId];
+      }
+      return clone;
+    });
+    icon.shapes.push(...clones);
+    layers.splice(idx + 1, 0, newLayer);
+    activeLayerId = newLayer.id;
+    pushHistory(); saveProject(); render();
+  }
 
   document.getElementById("newProjectBtn").addEventListener("click", async () => {
     const ok = await showConfirm("Start a new project? This clears every icon in the editor. Export or download first if you want to keep this set.");
@@ -4755,7 +4814,8 @@
         '<span class="icon-row-count">' + (counts[layer.id] || 0) + "</span>" +
         '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="up" title="Move layer up (toward the top of the stack)"' + (idx === layers.length - 1 ? " disabled" : "") + ">▲</button>" +
         '<button class="icon-row-move" data-move-layer="' + layer.id + '" data-dir="down" title="Move layer down (toward the bottom of the stack)"' + (idx === 0 ? " disabled" : "") + ">▼</button>" +
-        (layers.length > 1 ? '<button class="icon-row-del" data-del-layer="' + layer.id + '" title="Delete layer">✕</button>' : "") +
+        '<button class="icon-row-copy" data-copy-layer="' + layer.id + '" title="Copy layer — duplicates it and every shape on it into a new layer">⧉</button>' +
+        (layers.length > 1 ? '<button class="icon-row-del" data-del-layer="' + layer.id + '" title="Delete layer — also permanently deletes its shapes">✕</button>' : "") +
         "</div>" +
         '<div class="layer-opacity-row"><input type="range" class="layer-opacity-slider" data-layer="' + layer.id + '" min="0" max="1" step="0.05" value="' + (layer.opacity != null ? layer.opacity : 1) + '" title="Layer opacity"></div>';
     });
@@ -4775,7 +4835,7 @@
     // being misread as a zero-distance drag.
     list.querySelectorAll(".icon-row").forEach((row) => {
       row.addEventListener("click", (e) => {
-        if (e.target.closest(".icon-row-del, .icon-row-move, .icon-row-eye")) return;
+        if (e.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-eye")) return;
         activeLayerId = row.dataset.layer;
         renderLayerList();
       });
@@ -4789,7 +4849,7 @@
         pushHistory(); saveProject(); render();
       });
       row.addEventListener("pointerdown", (evt) => {
-        if (evt.target.closest(".icon-row-del, .icon-row-move, .icon-row-eye")) return;
+        if (evt.target.closest(".icon-row-del, .icon-row-move, .icon-row-copy, .icon-row-eye")) return;
         const startX = evt.clientX, startY = evt.clientY;
         const draggedId = row.dataset.layer;
         let dragging = false;
@@ -4863,17 +4923,33 @@
         pushHistory(); saveProject(); render();
       });
     });
+    list.querySelectorAll(".icon-row-copy").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        duplicateLayer(btn.dataset.copyLayer);
+      });
+    });
     list.querySelectorAll(".icon-row-del").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const layerId = btn.dataset.delLayer;
         const idx = layers.findIndex((l) => l.id === layerId);
-        const target = layers[idx === 0 ? 1 : idx - 1];
-        const ok = await showConfirm('Delete "' + layers[idx].name + '"? Its shapes move to "' + target.name + '".');
+        const shapeCount = counts[layerId] || 0;
+        // Deletes the shapes too now (used to migrate them to the
+        // neighboring layer) - a real, destructive change from before,
+        // so the warning says so explicitly. Ctrl+Z still reverses it
+        // like any other edit, same as every other "can't undo back to
+        // X" warning in this tool - it just can't be undone from
+        // inside the confirm dialog itself.
+        const warning = shapeCount > 0
+          ? 'Delete "' + layers[idx].name + '"? This permanently deletes its ' + shapeCount + (shapeCount === 1 ? " shape" : " shapes") + ' too, not just the layer (Ctrl+Z still works as a normal undo step).'
+          : 'Delete "' + layers[idx].name + '"?';
+        const ok = await showConfirm(warning);
         if (!ok) return;
-        icon.shapes.forEach((s) => { if (s.layer === layerId) s.layer = target.id; });
+        icon.shapes = icon.shapes.filter((s) => s.layer !== layerId);
+        if (selectedId && !icon.shapes.some((s) => s.id === selectedId)) selectedId = null;
         layers.splice(idx, 1);
-        if (activeLayerId === layerId) activeLayerId = target.id;
+        if (activeLayerId === layerId) activeLayerId = layers[Math.max(0, idx - 1)].id;
         pushHistory(); saveProject(); render();
       });
     });
