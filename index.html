@@ -484,6 +484,16 @@
   }
   #toolTip::after { left: -5px; border-right-color: var(--border); }
   #toolTip::before { left: -4px; border-right-color: var(--surface-2); }
+  /* Right-rail tooltips fly out LEFTWARD instead (see the JS wiring's
+     "left" side param) - a right-flown tooltip there would run off the
+     edge of the viewport, since the trigger is already pinned to the
+     right edge. Arrow moves to the tooltip's right edge, pointing back
+     toward the trigger, and the entrance slide direction flips too. */
+  #toolTip.tip-left { transform: translate(4px, -50%); }
+  #toolTip.tip-left.visible { transform: translate(0, -50%); }
+  #toolTip.tip-left::before, #toolTip.tip-left::after { left: auto; border-right-color: transparent; }
+  #toolTip.tip-left::after { right: -5px; border-left-color: var(--border); }
+  #toolTip.tip-left::before { right: -4px; border-left-color: var(--surface-2); }
 
   .canvas-wrap { display: flex; flex-direction: row; min-width: 0; min-height: 0; }
   .canvas-viewport {
@@ -3936,7 +3946,14 @@
   const toolTipEl = document.getElementById("toolTip");
   let toolTipShowTimer = null;
   function hideToolTip() { clearTimeout(toolTipShowTimer); toolTipEl.classList.remove("visible"); }
-  function wireToolTip(el) {
+  // side "right" (default) flies out rightward, for the left toolbar
+  // rail; side "left" flies out leftward instead, for the right rail -
+  // otherwise a right-flown tooltip there would run straight off the
+  // edge of the viewport. #toolTip stays opacity:0 (not display:none)
+  // even when hidden, so its real rendered width is already measurable
+  // via getBoundingClientRect() before it's shown - no flash-then-
+  // reposition hack needed for the left-side case.
+  function wireToolTip(el, side) {
     const text = el.getAttribute("title");
     if (!text) return;
     el.removeAttribute("title");
@@ -3946,14 +3963,21 @@
       toolTipShowTimer = setTimeout(() => {
         const r = el.getBoundingClientRect();
         toolTipEl.textContent = text;
-        toolTipEl.style.left = (r.right + 10) + "px";
+        toolTipEl.classList.toggle("tip-left", side === "left");
         toolTipEl.style.top = (r.top + r.height / 2) + "px";
+        if (side === "left") {
+          const w = toolTipEl.getBoundingClientRect().width;
+          toolTipEl.style.left = (r.left - w - 10) + "px";
+        } else {
+          toolTipEl.style.left = (r.right + 10) + "px";
+        }
         toolTipEl.classList.add("visible");
       }, 150);
     });
     el.addEventListener("mouseleave", hideToolTip);
   }
   document.querySelectorAll("#toolbarDock .tool-btn, .variant-arrow").forEach(wireToolTip);
+  document.querySelectorAll(".right-rail .tool-btn").forEach((el) => wireToolTip(el, "left"));
 
   // "Draw as knockout" as a Boxy-style tool-group flyout, reached via
   // each applicable button's corner .variant-arrow. Short, friendly
