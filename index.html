@@ -2420,6 +2420,21 @@
     if (handleName.indexOf("s") >= 0) y2 += dy;
     return { x: Math.min(x, x2), y: Math.min(y, y2), w: Math.abs(x2 - x), h: Math.abs(y2 - y) };
   }
+  // Corner-only aspect-ratio lock (see aspectLockActive) - re-derives w/h
+  // to match origBbox's own ratio, driven by whichever axis actually
+  // moved more, then re-anchors x/y from whichever corner ISN'T being
+  // dragged so that corner stays exactly put, same as an unlocked resize
+  // already leaves its own untouched edges alone.
+  function lockBboxAspect(nb, origBbox, handle) {
+    const ratio = origBbox.h > 0.0001 ? origBbox.w / origBbox.h : 1;
+    if (Math.abs(nb.w - origBbox.w) > Math.abs(nb.h - origBbox.h) * ratio) nb.h = nb.w / ratio;
+    else nb.w = nb.h * ratio;
+    const anchorX = handle.indexOf("w") >= 0 ? origBbox.x + origBbox.w : origBbox.x;
+    const anchorY = handle.indexOf("n") >= 0 ? origBbox.y + origBbox.h : origBbox.y;
+    nb.x = handle.indexOf("w") >= 0 ? anchorX - nb.w : anchorX;
+    nb.y = handle.indexOf("n") >= 0 ? anchorY - nb.h : anchorY;
+    return nb;
+  }
   function moveShape(orig, s, dx, dy) {
     if (s.type === "rect") { s.x = orig.x + dx; s.y = orig.y + dy; }
     else if (s.type === "ellipse") { s.cx = orig.cx + dx; s.cy = orig.cy + dy; }
@@ -2609,6 +2624,25 @@
   let penDraft = null;
   let penPendingDrag = null;
   let shiftHeld = false;
+  // Touch equivalent of holding Shift for aspect-ratio lock: a second
+  // finger landing WHILE a lockable single-finger drag (Rect/Ellipse
+  // draw, a corner-handle resize on Select, or a Trace-image corner
+  // resize) is already in progress. Set/cleared entirely inside
+  // onPointerDown/onPointerUp's touch handling - see the lockableDrag()
+  // check there for exactly which drags qualify. Everywhere else, a
+  // second finger still means pinch-zoom/pan exactly like before this
+  // existed - this only intercepts the one specific combination.
+  let touchAspectLockHeld = false;
+  function aspectLockActive() { return shiftHeld || touchAspectLockHeld; }
+  const CORNER_HANDLE_NAMES = new Set(["nw", "ne", "sw", "se"]);
+  // Which real pointerId is actually driving the active drag - only
+  // matters once a second touch can be on-screen without hijacking into
+  // pinch (see touchAspectLockHeld above). Before that, onPointerMove
+  // never had to distinguish between fingers, since a 2nd one always
+  // meant "stop dragging, start pinching" instead. Set on every
+  // pointerdown that isn't itself the pinch-hijack path; read in
+  // onPointerMove to ignore movement from any OTHER simultaneous touch.
+  let primaryDragPointerId = null;
   let boolSet = []; // up to 2 shape ids picked via shift-click, for the boolean cut op
   let multiSelect = []; // shape ids picked in the Multi tool, for bulk stroke-width/delete
   let marqueeRect = null;
@@ -2795,9 +2829,24 @@
     if (evt.pointerType === "touch") {
       activeTouchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
       if (activeTouchPointers.size === 2) {
-        // A second finger landing mid-gesture means the intent just
-        // shifted to navigating the view, not whatever the active tool
-        // was about to do with the first finger alone - cancel that
+        // A second finger during one of these specific drags means
+        // "lock the aspect ratio" (touch equivalent of holding Shift -
+        // see aspectLockActive), not "switch to pinch-zoom/pan". The
+        // primary finger's own drag just keeps going untouched; only
+        // this flag changes. Every other 2-finger case below is
+        // unchanged from before this existed.
+        const lockableDrag =
+          (traceDrag && traceDrag.mode === "resize") ||
+          (dragMode === "draw" && draftShape && (draftShape.type === "rect" || draftShape.type === "ellipse")) ||
+          (dragMode === "handle" && dragHandle && CORNER_HANDLE_NAMES.has(dragHandle));
+        if (lockableDrag) {
+          touchAspectLockHeld = true;
+          evt.preventDefault();
+          return;
+        }
+        // A second finger landing mid-gesture otherwise means the intent
+        // just shifted to navigating the view, not whatever the active
+        // tool was about to do with the first finger alone - cancel that
         // cleanly rather than leaving a half-finished draft behind.
         cancelActiveDrag();
         if (penDraft) { penDraft = null; penPendingDrag = null; }
@@ -2809,6 +2858,7 @@
       }
       if (activeTouchPointers.size > 2) { evt.preventDefault(); return; }
     }
+    primaryDragPointerId = evt.pointerId;
     if (tool === "pan") {
       // touch-action: pan-x pan-y (see #artboard.pan-active) only makes
       // the browser hand real TOUCH-drag gestures their native scroll
@@ -3023,6 +3073,11 @@
         }
         return;
       }
+      // The "hold a 2nd finger to lock aspect ratio" finger (see
+      // touchAspectLockHeld) - its position is tracked above (for when
+      // it eventually lifts) but it never drives the drag itself, only
+      // the actual primary finger's own moves do.
+      if (touchAspectLockHeld && evt.pointerId !== primaryDragPointerId) return;
     }
     if (dragMode === "pan") {
       // Raw screen pixels, 1:1 with the mouse - matches how the native
@@ -3047,10 +3102,11 @@
         else if (traceDrag.handle === "trace-nw") { w = orig.w - dx; h = orig.h - dy; x = orig.x + orig.w - w; y = orig.y + orig.h - h; }
         else if (traceDrag.handle === "trace-ne") { w = orig.w + dx; h = orig.h - dy; y = orig.y + orig.h - h; }
         else if (traceDrag.handle === "trace-sw") { w = orig.w - dx; h = orig.h + dy; x = orig.x + orig.w - w; }
-        // Shift preserves the image's original aspect ratio - re-anchored
-        // from whichever corner is actually being dragged, same as the
+        // Shift (or a second finger held on touch - see aspectLockActive)
+        // preserves the image's original aspect ratio - re-anchored from
+        // whichever corner is actually being dragged, same as the
         // opposite-corner-stays-put convention every other resize here uses.
-        if (shiftHeld && orig.h) {
+        if (aspectLockActive() && orig.h) {
           const ratio = orig.w / orig.h;
           if (Math.abs(w - orig.w) > Math.abs(h - orig.h)) h = w / ratio; else w = h * ratio;
           if (traceDrag.handle === "trace-nw") { x = orig.x + orig.w - w; y = orig.y + orig.h - h; }
@@ -3068,13 +3124,13 @@
       const sp = snapPt(p);
       if (draftShape.type === "rect") {
         let w = sp.x - dragStart.x, h = sp.y - dragStart.y;
-        if (shiftHeld) { const m = Math.max(Math.abs(w), Math.abs(h)); w = (w < 0 ? -1 : 1) * m; h = (h < 0 ? -1 : 1) * m; }
+        if (aspectLockActive()) { const m = Math.max(Math.abs(w), Math.abs(h)); w = (w < 0 ? -1 : 1) * m; h = (h < 0 ? -1 : 1) * m; }
         draftShape.x = w < 0 ? dragStart.x + w : dragStart.x;
         draftShape.y = h < 0 ? dragStart.y + h : dragStart.y;
         draftShape.w = Math.abs(w); draftShape.h = Math.abs(h);
       } else if (draftShape.type === "ellipse") {
         let w = sp.x - dragStart.x, h = sp.y - dragStart.y;
-        if (shiftHeld) { const m = Math.max(Math.abs(w), Math.abs(h)); w = (w < 0 ? -1 : 1) * m; h = (h < 0 ? -1 : 1) * m; }
+        if (aspectLockActive()) { const m = Math.max(Math.abs(w), Math.abs(h)); w = (w < 0 ? -1 : 1) * m; h = (h < 0 ? -1 : 1) * m; }
         const x = w < 0 ? dragStart.x + w : dragStart.x;
         const y = h < 0 ? dragStart.y + h : dragStart.y;
         draftShape.rx = Math.abs(w) / 2; draftShape.ry = Math.abs(h) / 2;
@@ -3127,7 +3183,14 @@
       // correction here.
       const dx0 = p.x - dragStart.x, dy0 = p.y - dragStart.y;
       let newBbox = resizeBbox(dragGroupResize.oldBbox, dragHandle, dx0, dy0);
-      if (snapEnabled) {
+      const lockingAspect = aspectLockActive() && CORNER_HANDLE_NAMES.has(dragHandle);
+      if (lockingAspect) newBbox = lockBboxAspect(newBbox, dragGroupResize.oldBbox, dragHandle);
+      // Snapping each edge to the grid independently would just re-drift
+      // the ratio lockBboxAspect just fixed (a locked shape's corner
+      // won't generally land exactly on a grid intersection) - the
+      // active, deliberate aspect lock wins over the passive grid-snap
+      // default when both apply at once.
+      if (snapEnabled && !lockingAspect) {
         const x2 = newBbox.x + newBbox.w, y2 = newBbox.y + newBbox.h;
         const sx = Math.round(newBbox.x / gridStep) * gridStep, sy = Math.round(newBbox.y / gridStep) * gridStep;
         const sx2 = Math.round(x2 / gridStep) * gridStep, sy2 = Math.round(y2 / gridStep) * gridStep;
@@ -3210,7 +3273,13 @@
 
   function onPointerUp(evt) {
     if (evt && evt.pointerType === "touch" && activeTouchPointers.has(evt.pointerId)) {
+      // Lifting the "hold to lock aspect ratio" finger (not the one
+      // actually dragging) just drops back to an unlocked drag - the
+      // primary finger is still down, so the drag itself isn't over.
+      const wasLockFinger = touchAspectLockHeld && evt.pointerId !== primaryDragPointerId;
       activeTouchPointers.delete(evt.pointerId);
+      if (activeTouchPointers.size < 2) touchAspectLockHeld = false;
+      if (wasLockFinger) return;
       if (pinchState) {
         // Lifting one finger of a pinch just ends the gesture outright,
         // rather than letting the remaining finger fall through into a
@@ -3336,7 +3405,13 @@
     if (handle === "p2") { const p = snapPt({ x: orig.x2 + dx, y: orig.y2 + dy }); s.x2 = p.x; s.y2 = p.y; return; }
     const origBbox = bboxOf(orig);
     let nb = resizeBbox(origBbox, handle, dx, dy);
-    if (snapEnabled) {
+    const lockingAspect = aspectLockActive() && CORNER_HANDLE_NAMES.has(handle);
+    if (lockingAspect) nb = lockBboxAspect(nb, origBbox, handle);
+    // See the matching comment in the group-resize branch above - an
+    // active aspect lock wins over the passive grid-snap default, since
+    // snapping each edge independently afterward would just re-drift
+    // the ratio right back off.
+    if (snapEnabled && !lockingAspect) {
       const x2 = nb.x + nb.w, y2 = nb.y + nb.h;
       const sx = Math.round(nb.x / gridStep) * gridStep, sy = Math.round(nb.y / gridStep) * gridStep;
       const sx2 = Math.round(x2 / gridStep) * gridStep, sy2 = Math.round(y2 / gridStep) * gridStep;
